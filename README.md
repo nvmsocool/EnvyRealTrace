@@ -1,4 +1,6 @@
-# NVIDIA Vulkan Ray Tracing Tutorial
+# (copy of) NVIDIA Vulkan Ray Tracing Tutorial
+
+This is a copy of the nvidia tutorial, and will only be used as a place to track my progress through said tutorial. Here is the original readme:
 
 This sample is a simple OBJ viewer in Vulkan, without any ray tracing functionality.
 It is the starting point of the [ray tracing tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/),
