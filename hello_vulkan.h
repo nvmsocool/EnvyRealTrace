@@ -40,7 +40,7 @@ public:
   void setup(const VkInstance& instance, const VkDevice& device, const VkPhysicalDevice& physicalDevice, uint32_t queueFamily) override;
   void createDescriptorSetLayout();
   void createGraphicsPipeline();
-  void loadModel(const std::string& filename, nvmath::mat4f transform = nvmath::mat4f(1));
+  size_t loadModel(const std::string& filename, nvmath::mat4f transform = nvmath::mat4f(1));
   void updateDescriptorSet();
   void createUniformBuffer();
   void createObjDescriptionBuffer();
@@ -125,11 +125,20 @@ public:
   void                                            initRayTracing();
   VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
 
-  // helper class for the TLAS
+  // Accelleration structure objects and functions
   nvvk::RaytracingBuilderKHR                      m_rtBuilder;
-
   auto objectToVkGeometryKHR(const ObjModel& model);
   void createBottomLevelAS();
   void createTopLevelAS();
+
+  //Descriptor objects and functions
+  nvvk::DescriptorSetBindings m_rtDescSetLayoutBind;
+  VkDescriptorPool            m_rtDescPool;
+  VkDescriptorSetLayout       m_rtDescSetLayout;
+  VkDescriptorSet             m_rtDescSet;
+
+  void createRtDescriptorSet();
+  void updateRtDescriptorSet();
+
 
 };

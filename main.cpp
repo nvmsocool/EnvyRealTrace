@@ -162,7 +162,7 @@ int main(int argc, char** argv)
   nvmath::mat4f transf;
   transf.set_scale(nvmath::vec3f(1, 1, 1));
   transf.set_translate(nvmath::vec3f(1, 1, 1));
-  helloVk.loadModel(nvh::findFile("media/scenes/cube_multi.obj", defaultSearchPaths, true), transf);
+  size_t i = helloVk.loadModel(nvh::findFile("media/scenes/cube_multi.obj", defaultSearchPaths, true), transf);
 
   helloVk.createOffscreenRender();
   helloVk.createDescriptorSetLayout();
@@ -175,6 +175,7 @@ int main(int argc, char** argv)
   helloVk.initRayTracing();
   helloVk.createBottomLevelAS();
   helloVk.createTopLevelAS();
+  helloVk.createRtDescriptorSet();
 
   helloVk.createPostDescriptor();
   helloVk.createPostPipeline();
