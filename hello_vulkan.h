@@ -39,7 +39,7 @@ class HelloVulkan : public nvvk::AppBaseVk
 public:
   void setup(const VkInstance& instance, const VkDevice& device, const VkPhysicalDevice& physicalDevice, uint32_t queueFamily) override;
   void createDescriptorSetLayout();
-  void createGraphicsPipeline();
+  void   createGraphicsPipeline();
   size_t loadModel(const std::string& filename, nvmath::mat4f transform = nvmath::mat4f(1));
   void updateDescriptorSet();
   void createUniformBuffer();
@@ -71,9 +71,9 @@ public:
   // Information pushed at each draw call
   PushConstantRaster m_pcRaster{
       {1},                // Identity matrix
-      {10.f, 15.f, 8.f},  // light position
+      {1.5f, 3.5f, 0.f},  // light position
       0,                  // instance Id
-      100.f,              // light intensity
+      1.f,              // light intensity
       0                   // light type
   };
 

@@ -91,7 +91,7 @@ int main(int argc, char** argv)
 
   // Setup camera
   CameraManip.setWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
-  CameraManip.setLookat(nvmath::vec3f(2.0f, 2.0f, 2.0f), nvmath::vec3f(0, 0, 0), nvmath::vec3f(0, 1, 0));
+  CameraManip.setLookat(nvmath::vec3f(4.771f, 2.769f, 1.132f), nvmath::vec3f(-0.512f, 1.280f, -0.221f), nvmath::vec3f(0, 1, 0));
 
   // Setup Vulkan
   if(!glfwVulkanSupported())
@@ -157,12 +157,12 @@ int main(int argc, char** argv)
   helloVk.initGUI(0);  // Using sub-pass 0
 
   // Creation of the example
-  helloVk.loadModel(nvh::findFile("media/scenes/cube_multi.obj", defaultSearchPaths, true));
+  // helloVk.loadModel(nvh::findFile("media/scenes/cube_multi.obj", defaultSearchPaths, true));
 
   nvmath::mat4f transf;
   transf.set_scale(nvmath::vec3f(1, 1, 1));
-  transf.set_translate(nvmath::vec3f(1, 1, 1));
-  size_t i = helloVk.loadModel(nvh::findFile("media/scenes/cube_multi.obj", defaultSearchPaths, true), transf);
+  transf.set_translate(nvmath::vec3f(0, 0, 0));
+  size_t i = helloVk.loadModel(nvh::findFile("models/room.obj", defaultSearchPaths, true), transf);
 
   helloVk.createOffscreenRender();
   helloVk.createDescriptorSetLayout();
