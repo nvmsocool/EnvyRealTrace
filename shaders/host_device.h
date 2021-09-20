@@ -53,6 +53,7 @@ END_BINDING();
 // clang-format on
 
 
+
 // Information of a obj model when referenced in a shader
 struct ObjDesc
 {

@@ -140,5 +140,27 @@ public:
   void createRtDescriptorSet();
   void updateRtDescriptorSet();
 
+  //rt pipeline
+  void createRtPipeline();
+
+  std::vector<VkRayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
+  VkPipelineLayout                                  m_rtPipelineLayout;
+  VkPipeline                                        m_rtPipeline;
+
+  // Push constant for ray tracer
+  PushConstantRay m_pcRay{};
+
+
+  //binding table
+  void createRtShaderBindingTable();
+
+  nvvk::Buffer                    m_rtSBTBuffer;
+  VkStridedDeviceAddressRegionKHR m_rgenRegion{};
+  VkStridedDeviceAddressRegionKHR m_missRegion{};
+  VkStridedDeviceAddressRegionKHR m_hitRegion{};
+  VkStridedDeviceAddressRegionKHR m_callRegion{};
+
+  // function to add rt call to commnd buffer
+  void raytrace(const VkCommandBuffer& cmdBuf, const nvmath::vec4f& clearColor);
 
 };
