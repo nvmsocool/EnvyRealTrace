@@ -79,6 +79,9 @@ int main(int argc, char** argv)
 {
   UNUSED(argc);
 
+  //compile shaders
+  system("D:\\SchoolWork\\vk_raytracing_tutorial_KHR\\ray_tracing__before\\shaders\\gen_all_shaders.bat");
+
   // Setup GLFW window
   glfwSetErrorCallback(onErrorCallback);
   if(!glfwInit())
