@@ -163,4 +163,8 @@ public:
   // function to add rt call to commnd buffer
   void raytrace(const VkCommandBuffer& cmdBuf, const nvmath::vec4f& clearColor);
 
+  //AA
+  void ResetFrame();
+  void updateFrame();
+
 };

@@ -50,6 +50,7 @@ void HelloVulkan::setup(const VkInstance& instance, const VkDevice& device, cons
   m_alloc.init(instance, device, physicalDevice);
   m_debug.setup(m_device);
   m_offscreenDepthFormat = nvvk::findDepthFormat(physicalDevice);
+  srand(1);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -692,7 +693,7 @@ void HelloVulkan::createTopLevelAS()
 void HelloVulkan::createRtDescriptorSet()
 {
   m_rtDescSetLayoutBind.addBinding(RtxBindings::eTlas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1,
-                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // TLAS
+                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);  // TLAS
   m_rtDescSetLayoutBind.addBinding(RtxBindings::eOutImage, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
 
@@ -739,6 +740,7 @@ void HelloVulkan::createRtPipeline()
     {
         eRaygen,
         eMiss,
+        eMiss2,
         eClosestHit,
         eShaderGroupCount
     };
@@ -756,10 +758,10 @@ void HelloVulkan::createRtPipeline()
     stage.stage   = VK_SHADER_STAGE_MISS_BIT_KHR;
     stages[eMiss] = stage;
     // The second miss shader is invoked when a shadow ray misses the geometry. It simply indicates that no occlusion has been found
-    // stage.module =
-    //     nvvk::createShaderModule(m_device, nvh::loadFile("spv/raytraceShadow.rmiss.spv", true, defaultSearchPaths, true));
-    // stage.stage    = VK_SHADER_STAGE_MISS_BIT_KHR;
-    // stages[eMiss2] = stage;
+    stage.module =
+        nvvk::createShaderModule(m_device, nvh::loadFile("spv/raytraceShadow.rmiss.spv", true, defaultSearchPaths, true));
+    stage.stage    = VK_SHADER_STAGE_MISS_BIT_KHR;
+    stages[eMiss2] = stage;
     // Hit Group - Closest Hit
     stage.module = nvvk::createShaderModule(m_device, nvh::loadFile("spv/raytrace.rchit.spv", true, defaultSearchPaths, true));
     stage.stage         = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
@@ -780,6 +782,11 @@ void HelloVulkan::createRtPipeline()
     // Miss
     group.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
     group.generalShader = eMiss;
+    m_rtShaderGroups.push_back(group);
+
+    // Shadow Miss
+    group.type          = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+    group.generalShader = eMiss2;
     m_rtShaderGroups.push_back(group);
 
     // closest hit shader
@@ -814,7 +821,7 @@ void HelloVulkan::createRtPipeline()
     rayPipelineInfo.groupCount = static_cast<uint32_t>(m_rtShaderGroups.size());
     rayPipelineInfo.pGroups    = m_rtShaderGroups.data();
 
-    rayPipelineInfo.maxPipelineRayRecursionDepth = 1;  // Ray depth
+    rayPipelineInfo.maxPipelineRayRecursionDepth = 2;  // Ray depth
     rayPipelineInfo.layout                       = m_rtPipelineLayout;
 
     vkCreateRayTracingPipelinesKHR(m_device, {}, {}, 1, &rayPipelineInfo, nullptr, &m_rtPipeline);
@@ -830,7 +837,7 @@ void HelloVulkan::createRtPipeline()
 //
 void HelloVulkan::createRtShaderBindingTable()
 {
-  uint32_t missCount{1};
+  uint32_t missCount{2};
   uint32_t hitCount{1};
   auto     handleCount = 1 + missCount + hitCount;
   uint32_t handleSize  = m_rtProperties.shaderGroupHandleSize;
@@ -903,12 +910,14 @@ void HelloVulkan::createRtShaderBindingTable()
 //
 void HelloVulkan::raytrace(const VkCommandBuffer& cmdBuf, const nvmath::vec4f& clearColor)
 {
+  updateFrame();
   m_debug.beginLabel(cmdBuf, "Ray trace");
   // Initializing push constant values
   m_pcRay.clearColor     = clearColor;
   m_pcRay.lightPosition  = m_pcRaster.lightPosition;
   m_pcRay.lightIntensity = m_pcRaster.lightIntensity;
   m_pcRay.lightType      = m_pcRaster.lightType;
+  m_pcRay.randSeed       = rand();
 
   std::vector<VkDescriptorSet> descSets{m_rtDescSet, m_descSet};
   vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);
@@ -920,4 +929,29 @@ void HelloVulkan::raytrace(const VkCommandBuffer& cmdBuf, const nvmath::vec4f& c
 
   vkCmdTraceRaysKHR(cmdBuf, &m_rgenRegion, &m_missRegion, &m_hitRegion, &m_callRegion, m_size.width, m_size.height, 1);
   m_debug.endLabel(cmdBuf);
+}
+
+void HelloVulkan::ResetFrame() {
+  m_pcRay.frame = -1;
+}
+
+//--------------------------------------------------------------------------------------------------
+// If the camera matrix or the the fov has changed, resets the frame.
+// otherwise, increments frame.
+//
+void HelloVulkan::updateFrame()
+{
+  static nvmath::mat4f refCamMatrix;
+  static float         refFov{CameraManip.getFov()};
+
+  const auto& m   = CameraManip.getMatrix();
+  const auto  fov = CameraManip.getFov();
+
+  if(memcmp(&refCamMatrix.a00, &m.a00, sizeof(nvmath::mat4f)) != 0 || refFov != fov)
+  {
+    ResetFrame();
+    refCamMatrix = m;
+    refFov       = fov;
+  }
+  m_pcRay.frame++;
 }
