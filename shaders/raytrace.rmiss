@@ -16,5 +16,13 @@ layout(push_constant) uniform _PushConstantRay
 
 void main()
 {
-  prd.hitValue = pcRay.clearColor.xyz * 0.8;
+  if(prd.depth == 0)
+  {
+    prd.hitValue = pcRay.clearColor.xyz * 0.8;
+  }
+  else
+  {
+    prd.hitValue = vec3(0.0);  // Tiny contribution from environment
+  }
+  prd.depth = 100;              // Ending trace
 }

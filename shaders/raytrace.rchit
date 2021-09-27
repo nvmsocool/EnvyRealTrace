@@ -9,9 +9,9 @@
 
 #include "raycommon.glsl"
 #include "wavefront.glsl"
+#include "sampling.glsl"
 
 layout(location = 0) rayPayloadInEXT hitPayload prd;
-layout(location = 2) rayPayloadEXT bool isShadowed;
 
 layout(buffer_reference, scalar) buffer Vertices {Vertex v[]; }; // Positions of an object
 layout(buffer_reference, scalar) buffer Indices {ivec3 i[]; }; // Triangle indices
@@ -52,72 +52,51 @@ void main()
     const vec3 nrm      = v0.nrm * barycentrics.x + v1.nrm * barycentrics.y + v2.nrm * barycentrics.z;
     const vec3 worldNrm = normalize(vec3(nrm * gl_WorldToObjectEXT));  // Transforming the normal to world space
 
-    // Vector toward the light
-    vec3  L;
-    float lightIntensity = pcRay.lightIntensity;
-    float lightDistance  = 100000.0;
-    // Point light
-    if(pcRay.lightType == 0)
-    {
-        vec3 lDir      = pcRay.lightPosition - worldPos;
-        lightDistance  = length(lDir);
-        lightIntensity = pcRay.lightIntensity / (2 * lightDistance * lightDistance);
-        L              = normalize(lDir);
-    }
-    else  // Directional light
-    {
-        L = normalize(pcRay.lightPosition);
-    }
-
+    // https://en.wikipedia.org/wiki/Path_tracing
     // Material of the object
     int               matIdx = matIndices.i[gl_PrimitiveID];
     WaveFrontMaterial mat    = materials.m[matIdx];
+    vec3         emittance = mat.emission / (vec3(1) - mat.emission);
 
-    // Diffuse
-    vec3 diffuse = computeDiffuse(mat, L, worldNrm);
-  
-    // Specular
-    vec3  specular    = vec3(0);
+    // Pick a random direction from here and keep going.
+    vec3 tangent, bitangent;
+    createCoordinateSystem(worldNrm, tangent, bitangent);
+    vec3 rayOrigin    = worldPos;
+    vec3 rayDirection = samplingHemisphere(prd.seed, tangent, bitangent, worldNrm);
 
+    // Probability of the newRay (cosine distributed)
+    const float p = 1 / M_PI;
 
-    //shadows?
-    float attenuation = 1;
+    // Compute the BRDF for this ray (assuming Lambertian reflection)
+    float cos_theta = dot(rayDirection, worldNrm);
+    vec3  BRDF      = mat.diffuse / M_PI;
+    vec3 incoming = vec3(1,1,1);
 
-    // Tracing shadow ray only if the light is visible from the surface
-    if(dot(worldNrm, L) > 0)
+    // Recursively trace reflected light sources.
+    if(prd.depth < 10)
     {
-      float tMin   = 0.001;
-      float tMax   = lightDistance;
-      vec3  origin = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
-      vec3  rayDir = L;
-      uint  flags =
-      gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
-      isShadowed = true;
+      prd.depth++;
+      float tMin  = 0.001;
+      float tMax  = 100000000.0;
+      uint  flags = gl_RayFlagsOpaqueEXT;
       traceRayEXT(
-        topLevelAS,  // acceleration structure
-        flags,       // rayFlags
-        0xFF,        // cullMask
-        0,           // sbtRecordOffset
-        0,           // sbtRecordStride
-        1,           // missIndex
-        origin,      // ray origin
-        tMin,        // ray min range
-        rayDir,      // ray direction
-        tMax,        // ray max range
-        2            // payload (location = 1)
+        topLevelAS,    // acceleration structure
+        flags,         // rayFlags
+        0xFF,          // cullMask
+        0,             // sbtRecordOffset
+        0,             // sbtRecordStride
+        0,             // missIndex
+        rayOrigin,     // ray origin
+        tMin,          // ray min range
+        rayDirection,  // ray direction
+        tMax,          // ray max range
+        0              // payload (location = 0)
       );
-
-      if(isShadowed)
-      {
-        attenuation = 0.3;
-      }
-      else
-      {
-        // Specular
-        specular = computeSpecular(mat, gl_WorldRayDirectionEXT, L, worldNrm);
-      }
+      incoming = prd.hitValue;
     }
 
-    prd.hitValue = vec3(lightIntensity * attenuation * (diffuse + specular));
+    // Apply the Rendering Equation here.
+    // prd.hitValue = emittance + (BRDF * cos_theta / p);
+    prd.hitValue = emittance + (BRDF * incoming * cos_theta / p);
 
 }

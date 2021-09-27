@@ -821,7 +821,7 @@ void HelloVulkan::createRtPipeline()
     rayPipelineInfo.groupCount = static_cast<uint32_t>(m_rtShaderGroups.size());
     rayPipelineInfo.pGroups    = m_rtShaderGroups.data();
 
-    rayPipelineInfo.maxPipelineRayRecursionDepth = 2;  // Ray depth
+    rayPipelineInfo.maxPipelineRayRecursionDepth = 10;  // Ray depth
     rayPipelineInfo.layout                       = m_rtPipelineLayout;
 
     vkCreateRayTracingPipelinesKHR(m_device, {}, {}, 1, &rayPipelineInfo, nullptr, &m_rtPipeline);
