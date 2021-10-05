@@ -80,6 +80,7 @@ struct PushConstantRaster
   uint  objIndex;
   float lightIntensity;
   int   lightType;
+  mat4  priorCamTransform;
 };
 
 

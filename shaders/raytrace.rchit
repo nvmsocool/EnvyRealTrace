@@ -27,6 +27,11 @@ layout(location = 1) rayPayloadInEXT vec3 hitValue;
 
 hitAttributeEXT vec3 attribs;
 
+vec3 scaleEmittence(vec3 e)
+{
+  e *= 0.99999999999999;
+  return vec3(pow(e.x/(1-e.x),2),pow(e.y/(1-e.y),2),pow(e.z/(1-e.z),2));
+}
 
 void main()
 {
@@ -56,7 +61,7 @@ void main()
     // Material of the object
     int               matIdx = matIndices.i[gl_PrimitiveID];
     WaveFrontMaterial mat    = materials.m[matIdx];
-    vec3         emittance = mat.emission / (vec3(1) - mat.emission);
+    vec3         emittance = scaleEmittence(mat.emission);
 
     // Pick a random direction from here and keep going.
     vec3 tangent, bitangent;
@@ -70,33 +75,11 @@ void main()
     // Compute the BRDF for this ray (assuming Lambertian reflection)
     float cos_theta = dot(rayDirection, worldNrm);
     vec3  BRDF      = mat.diffuse / M_PI;
-    vec3 incoming = vec3(1,1,1);
 
-    // Recursively trace reflected light sources.
-    if(prd.depth < 10)
-    {
-      prd.depth++;
-      float tMin  = 0.001;
-      float tMax  = 100000000.0;
-      uint  flags = gl_RayFlagsOpaqueEXT;
-      traceRayEXT(
-        topLevelAS,    // acceleration structure
-        flags,         // rayFlags
-        0xFF,          // cullMask
-        0,             // sbtRecordOffset
-        0,             // sbtRecordStride
-        0,             // missIndex
-        rayOrigin,     // ray origin
-        tMin,          // ray min range
-        rayDirection,  // ray direction
-        tMax,          // ray max range
-        0              // payload (location = 0)
-      );
-      incoming = prd.hitValue;
-    }
-
-    // Apply the Rendering Equation here.
-    // prd.hitValue = emittance + (BRDF * cos_theta / p);
-    prd.hitValue = emittance + (BRDF * incoming * cos_theta / p);
+    prd.rayOrigin    = rayOrigin;
+    prd.rayDirection = rayDirection;
+    prd.hitValue     = emittance;
+    prd.weight       = BRDF * cos_theta / p;
+    return;
 
 }
