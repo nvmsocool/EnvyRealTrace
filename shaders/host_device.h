@@ -48,7 +48,8 @@ END_BINDING();
 
 START_BINDING(RtxBindings)
   eTlas     = 0,  // Top-level acceleration structure
-  eOutImage = 1   // Ray tracer output image
+  eOutImage = 1,   // Ray tracer output image
+  eColorHistoryImage = 2
 END_BINDING();
 // clang-format on
 
@@ -68,6 +69,7 @@ struct ObjDesc
 struct GlobalUniforms
 {
   mat4 viewProj;     // Camera view * projection
+  mat4 priorViewProj;     // Camera view * projection
   mat4 viewInverse;  // Camera inverse view matrix
   mat4 projInverse;  // Camera inverse projection matrix
 };
@@ -80,7 +82,6 @@ struct PushConstantRaster
   uint  objIndex;
   float lightIntensity;
   int   lightType;
-  mat4  priorCamTransform;
 };
 
 

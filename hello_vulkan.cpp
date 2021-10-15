@@ -65,7 +65,9 @@ void HelloVulkan::updateUniformBuffer(const VkCommandBuffer& cmdBuf)
   const auto&    proj        = nvmath::perspectiveVK(CameraManip.getFov(), aspectRatio, 0.1f, 1000.0f);
   // proj[1][1] *= -1;  // Inverting Y for Vulkan (not needed with perspectiveVK).
 
+  hostUBO.priorViewProj = m_priorViewProj;
   hostUBO.viewProj    = proj * view;
+  m_priorViewProj       = hostUBO.viewProj;
   hostUBO.viewInverse = nvmath::invert(view);
   hostUBO.projInverse = nvmath::invert(proj);
 
@@ -398,7 +400,13 @@ void HelloVulkan::destroyResources()
 
   //#Post
   m_alloc.destroy(m_offscreenColor);
+  m_alloc.destroy(m_offscreenColorHistory);
+  m_alloc.destroy(m_offscreenPosHistory);
   m_alloc.destroy(m_offscreenDepth);
+  m_alloc.destroy(m_offscreenIterationHistory);
+  m_alloc.destroy(m_offscreenVarianceHistory);
+  m_alloc.destroy(m_offscreenPos);
+  m_alloc.destroy(m_offscreenVariance);
   vkDestroyPipeline(m_device, m_postPipeline, nullptr);
   vkDestroyPipelineLayout(m_device, m_postPipelineLayout, nullptr);
   vkDestroyDescriptorPool(m_device, m_postDescPool, nullptr);
@@ -464,19 +472,64 @@ void HelloVulkan::createOffscreenRender()
 {
   m_alloc.destroy(m_offscreenColor);
   m_alloc.destroy(m_offscreenDepth);
+  m_alloc.destroy(m_offscreenColorHistory);
+  m_alloc.destroy(m_offscreenIterationHistory);
+  m_alloc.destroy(m_offscreenPosHistory);
+  m_alloc.destroy(m_offscreenVarianceHistory);
+  m_alloc.destroy(m_offscreenPos);
+  m_alloc.destroy(m_offscreenVariance);
 
   // Creating the color image
   {
-    auto colorCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenColorFormat,
+    auto src_colorCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenColorFormat,
+                                                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                                                           | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+    auto dst_colorCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenColorFormat,
+                                                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                                                               | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+
+
+    nvvk::Image           image  = m_alloc.createImage(dst_colorCreateInfo);
+    VkImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, dst_colorCreateInfo);
+    VkSamplerCreateInfo   sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    m_offscreenColor                        = m_alloc.createTexture(image, ivInfo, sampler);
+    m_offscreenColor.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    image                                 = m_alloc.createImage(src_colorCreateInfo);
+    ivInfo                                = nvvk::makeImageViewCreateInfo(image.image, src_colorCreateInfo);
+    m_offscreenPos                        = m_alloc.createTexture(image, ivInfo, sampler);
+    m_offscreenPos.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+  }
+
+  // Create color history
+  // The G-Buffer (rgba32f) - position(xyz) / normal(w-compressed)
+  {
+    auto createInfo = nvvk::makeImage2DCreateInfo(m_size, VK_FORMAT_R32G32B32A32_SFLOAT,
                                                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
                                                            | VK_IMAGE_USAGE_STORAGE_BIT);
 
 
-    nvvk::Image           image  = m_alloc.createImage(colorCreateInfo);
-    VkImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
+    nvvk::Image           image      = m_alloc.createImage(createInfo);
+    VkImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, createInfo);
     VkSamplerCreateInfo   sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    m_offscreenColor                        = m_alloc.createTexture(image, ivInfo, sampler);
-    m_offscreenColor.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    m_offscreenColorHistory          = m_alloc.createTexture(image, ivInfo, sampler);
+    m_offscreenColorHistory.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  }
+
+  // Create position hisory
+  // The G-Buffer (rgba32f) - position(xyz) / normal(w-compressed)
+  {
+    auto createInfo = nvvk::makeImage2DCreateInfo(m_size, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                                                      | VK_IMAGE_USAGE_STORAGE_BIT);
+
+
+    nvvk::Image           image  = m_alloc.createImage(createInfo);
+    VkImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, createInfo);
+    VkSamplerCreateInfo   sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    m_offscreenPosHistory                          = m_alloc.createTexture(image, ivInfo, sampler);
+    m_offscreenPosHistory.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   }
 
   // Creating the depth buffer
@@ -492,6 +545,20 @@ void HelloVulkan::createOffscreenRender()
     depthStencilView.image            = image.image;
 
     m_offscreenDepth = m_alloc.createTexture(image, depthStencilView);
+
+    
+    image                   = m_alloc.createImage(depthCreateInfo);
+    depthStencilView.image  = image.image;
+    m_offscreenIterationHistory = m_alloc.createTexture(image, depthStencilView);
+
+    image                      = m_alloc.createImage(depthCreateInfo);
+    depthStencilView.image     = image.image;
+    m_offscreenVarianceHistory = m_alloc.createTexture(image, depthStencilView);
+
+    image                      = m_alloc.createImage(depthCreateInfo);
+    depthStencilView.image     = image.image;
+    m_offscreenVariance = m_alloc.createTexture(image, depthStencilView);
+
   }
 
   // Setting the image layout for both color and depth
@@ -501,7 +568,30 @@ void HelloVulkan::createOffscreenRender()
     nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenColor.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenDepth.image, VK_IMAGE_LAYOUT_UNDEFINED,
                                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
-
+    genCmdBuf.submitAndWait(cmdBuf);
+  }
+  {
+    nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
+    auto              cmdBuf = genCmdBuf.createCommandBuffer();
+    nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenColorHistory.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenIterationHistory.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                                VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+    genCmdBuf.submitAndWait(cmdBuf);
+  }
+  {
+    nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
+    auto              cmdBuf = genCmdBuf.createCommandBuffer();
+    nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenPosHistory.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenVarianceHistory.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                                VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+    genCmdBuf.submitAndWait(cmdBuf);
+  }
+  {
+    nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
+    auto              cmdBuf = genCmdBuf.createCommandBuffer();
+    nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenPos.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenVariance.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                                VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
     genCmdBuf.submitAndWait(cmdBuf);
   }
 
@@ -514,7 +604,12 @@ void HelloVulkan::createOffscreenRender()
 
 
   // Creating the frame buffer for offscreen
-  std::vector<VkImageView> attachments = {m_offscreenColor.descriptor.imageView, m_offscreenDepth.descriptor.imageView};
+  std::vector<VkImageView> attachments = {
+    m_offscreenColor.descriptor.imageView, m_offscreenDepth.descriptor.imageView, 
+    m_offscreenColorHistory.descriptor.imageView, m_offscreenIterationHistory.descriptor.imageView,
+      m_offscreenPosHistory.descriptor.imageView,   m_offscreenVarianceHistory.descriptor.imageView,
+      m_offscreenPos.descriptor.imageView,   m_offscreenVariance.descriptor.imageView
+  };
 
   vkDestroyFramebuffer(m_device, m_offscreenFramebuffer, nullptr);
   VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
@@ -571,8 +666,11 @@ void HelloVulkan::createPostDescriptor()
 //
 void HelloVulkan::updatePostDescriptorSet()
 {
-  VkWriteDescriptorSet writeDescriptorSets = m_postDescSetLayoutBind.makeWrite(m_postDescSet, 0, &m_offscreenColor.descriptor);
-  vkUpdateDescriptorSets(m_device, 1, &writeDescriptorSets, 0, nullptr);
+  // m_offscreenColorHistory, m_offscreenPosHistory ?
+  std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
+      m_postDescSetLayoutBind.makeWrite(m_postDescSet, 0, &m_offscreenColor.descriptor)
+  };
+  vkUpdateDescriptorSets(m_device, 1, writeDescriptorSets.data(), 0, nullptr);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -696,6 +794,12 @@ void HelloVulkan::createRtDescriptorSet()
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);  // TLAS
   m_rtDescSetLayoutBind.addBinding(RtxBindings::eOutImage, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
+  m_rtDescSetLayoutBind.addBinding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
+  m_rtDescSetLayoutBind.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
+  m_rtDescSetLayoutBind.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
 
   m_rtDescPool      = m_rtDescSetLayoutBind.createPool(m_device);
   m_rtDescSetLayout = m_rtDescSetLayoutBind.createLayout(m_device);
@@ -711,11 +815,19 @@ void HelloVulkan::createRtDescriptorSet()
   VkWriteDescriptorSetAccelerationStructureKHR descASInfo{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
   descASInfo.accelerationStructureCount = 1;
   descASInfo.pAccelerationStructures    = &tlas;
+
+  
   VkDescriptorImageInfo imageInfo{{}, m_offscreenColor.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo colorHistInfo{{}, m_offscreenColorHistory.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo positionHistInfo{{}, m_offscreenPosHistory.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo positionInfo{{}, m_offscreenPos.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
 
   std::vector<VkWriteDescriptorSet> writes;
   writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, RtxBindings::eTlas, &descASInfo));
   writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, RtxBindings::eOutImage, &imageInfo));
+  writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 2, &colorHistInfo));
+  writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 3, &positionHistInfo));
+  writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 4, &positionInfo));
   vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
@@ -725,10 +837,20 @@ void HelloVulkan::createRtDescriptorSet()
 //
 void HelloVulkan::updateRtDescriptorSet()
 {
+
+
   // (1) Output buffer
-  VkDescriptorImageInfo imageInfo{{}, m_offscreenColor.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
-  VkWriteDescriptorSet  wds = m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, RtxBindings::eOutImage, &imageInfo);
+  VkWriteDescriptorSet wds = m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, RtxBindings::eOutImage, &m_offscreenColor.descriptor);
   vkUpdateDescriptorSets(m_device, 1, &wds, 0, nullptr);
+
+  VkWriteDescriptorSet  cwds = m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 2, &m_offscreenColorHistory.descriptor);
+  vkUpdateDescriptorSets(m_device, 1, &cwds, 0, nullptr);
+
+  VkWriteDescriptorSet  pwds = m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 3, &m_offscreenPosHistory.descriptor);
+  vkUpdateDescriptorSets(m_device, 1, &pwds, 0, nullptr);
+
+  VkWriteDescriptorSet  powds = m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 4, &m_offscreenPos.descriptor);
+  vkUpdateDescriptorSets(m_device, 1, &powds, 0, nullptr);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -928,6 +1050,35 @@ void HelloVulkan::raytrace(const VkCommandBuffer& cmdBuf, const nvmath::vec4f& c
                      0, sizeof(PushConstantRay), &m_pcRay);
 
   vkCmdTraceRaysKHR(cmdBuf, &m_rgenRegion, &m_missRegion, &m_hitRegion, &m_callRegion, m_size.width, m_size.height, 1);
+
+  //copy history:
+  VkImageCopy imageCopyRegion{};
+  imageCopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  imageCopyRegion.srcSubresource.layerCount = 1;
+  imageCopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  imageCopyRegion.dstSubresource.layerCount = 1;
+  imageCopyRegion.extent.width              = m_size.width;
+  imageCopyRegion.extent.height             = m_size.height;
+  imageCopyRegion.extent.depth              = 1;
+
+  vkCmdCopyImage(cmdBuf, m_offscreenPos.image, m_offscreenPos.descriptor.imageLayout, m_offscreenPosHistory.image,
+                 m_offscreenPosHistory.descriptor.imageLayout, 1, &imageCopyRegion);
+
+  vkCmdCopyImage(cmdBuf, m_offscreenColor.image, m_offscreenColor.descriptor.imageLayout, m_offscreenColorHistory.image,
+                 m_offscreenColorHistory.descriptor.imageLayout, 1, &imageCopyRegion);
+
+  VkImageCopy depthCopyRegion{};
+  depthCopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+  depthCopyRegion.srcSubresource.layerCount = 1;
+  depthCopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+  depthCopyRegion.dstSubresource.layerCount = 1;
+  depthCopyRegion.extent.width              = m_size.width;
+  depthCopyRegion.extent.height             = m_size.height;
+  depthCopyRegion.extent.depth              = 1;
+
+  vkCmdCopyImage(cmdBuf, m_offscreenDepth.image, m_offscreenDepth.descriptor.imageLayout, m_offscreenIterationHistory.image,
+                 m_offscreenIterationHistory.descriptor.imageLayout, 1, &depthCopyRegion);
+
   m_debug.endLabel(cmdBuf);
 }
 

@@ -75,7 +75,7 @@ void main()
     // Compute the BRDF for this ray (assuming Lambertian reflection)
     float cos_theta = dot(rayDirection, worldNrm);
     vec3  BRDF      = mat.diffuse / M_PI;
-
+    
     prd.rayOrigin    = rayOrigin;
     prd.rayDirection = rayDirection;
     prd.hitValue     = emittance;

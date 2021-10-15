@@ -13,8 +13,9 @@ layout(set = 1, binding = eGlobals) uniform _GlobalUniforms { GlobalUniforms uni
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 1, set = 0, rgba32f) uniform image2D image;
-layout(binding = 2, set = 0, rgba32f) uniform image2D posHistory;
-layout(binding = 3, set = 0, rgba32f) uniform image2D colorHistory;
+layout(binding = 2, set = 0) uniform sampler2D colorHistory;
+layout(binding = 3, set = 0, rgba32f) uniform image2D posHistory;
+layout(binding = 4, set = 0, rgba32f) uniform image2D pos;
 
 layout(push_constant) uniform _PushConstantRay { PushConstantRay pcRay; };
 
@@ -26,7 +27,7 @@ void main()
 {
     prd.seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x, int(clockARB()));
 
-    const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5) + vec2(rand(gl_LaunchIDEXT.xy, pcRay.randSeed), rand(gl_LaunchIDEXT.yx, pcRay.randSeed)) * 1;
+    const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5) + vec2(rand(gl_LaunchIDEXT.xy, pcRay.randSeed), rand(gl_LaunchIDEXT.yx, pcRay.randSeed)) * 0;
     const vec2 inUV = pixelCenter/vec2(gl_LaunchSizeEXT.xy);
     vec2 d = inUV * 2.0 - 1.0;
 
@@ -46,6 +47,9 @@ void main()
     vec3 curWeight = vec3(1);
     vec3 hitValue  = vec3(0);
 
+    bool first = true;
+    vec3 firstHitPos = vec3(0);
+
     for(prd.depth = 0; prd.depth < 10; prd.depth++)
     {
         traceRayEXT(
@@ -63,15 +67,47 @@ void main()
         );
 
         //get first hit world location
+        if (first)
+        {
+          first = false;
+          firstHitPos = prd.rayOrigin;
+        }
 
         hitValue += prd.hitValue * curWeight;
         curWeight *= prd.weight;
     }
 
+    float f = pcRay.frame;
+
+    //store the first hit from this frame
+    imageStore(pos, ivec2(gl_LaunchIDEXT.xy), vec4(firstHitPos, 1));
+
     // find equivelant fragment from last frame, based on world position
-    //   translate by opposite of camera movement
-    //   rotate by invesrse of camera rotation, RELATIVE TO CAMERA POSITION
-    //   translate to screen coordinates (projection?)
+    // store camera perpectice from last frame, re-calculate screen space of point
+
+    vec4 screenProjected = (uni.priorViewProj * vec4(firstHitPos, 1.0));
+    vec2 screenspace = ((screenProjected.xy / screenProjected.w) + vec2(1)) / 2;
+    ivec2 screenspace_pixels = ivec2(screenspace.x * gl_LaunchSizeEXT.x, screenspace.y * gl_LaunchSizeEXT.y);
+    
+    float frame = 0;
+    vec3 old_color;
+
+    if (!(screenspace.x < 0 || screenspace.x > 1 || screenspace.y < 0 || screenspace.y > 1))
+    {
+      // fragment was visible in last camera view
+      vec3 priorFirstHit = imageLoad(posHistory, screenspace_pixels).xyz;
+    
+      if (length(priorFirstHit - firstHitPos) < 0.1)
+      {
+        // fragment was not occluded in last camera view
+        // pull color and frame from colorHistory
+        vec4 history = texture(colorHistory, screenspace);
+        //vec4 history = imageLoad(colorHistory, screenspace_pixels);
+        old_color = history.xyz;
+        frame = history.w;
+      }
+    }
+
 
     // if outside of history view, rest frame to 1 (value = trace from above)
     // else
@@ -84,13 +120,19 @@ void main()
 
     // run additional traces if frame count is low
 
-    if(pcRay.frame > 0)
+    //if (abs(imageLoad(image, ivec2(gl_LaunchIDEXT.xy)).z - imageLoad(colorHistory, ivec2(gl_LaunchIDEXT.xy)).z) > 0.001)
+    //{
+    //  imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(0,0,1,1));
+    //  return;
+    //}
+
+    //imageStore(image, ivec2(gl_LaunchIDEXT.xy), imageLoad(colorHistory, ivec2(gl_LaunchIDEXT.xy)));
+
+    if(frame >= 1.0)
     {
-      float frame     = imageLoad(image, ivec2(gl_LaunchIDEXT.xy)).w + 1;
       float a         = 1.0f / frame;
-      vec3  old_color = imageLoad(image, ivec2(gl_LaunchIDEXT.xy)).xyz;
-      vec3  new_color = vec4(mix(old_color, hitValue, a);
-      imageStore(image, ivec2(gl_LaunchIDEXT.xy), new_color, frame));
+      vec3  new_color = vec3(mix(old_color, hitValue, a));
+      imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(new_color, min(100,frame+1)));
     }
     else
     {
@@ -99,5 +141,6 @@ void main()
     }
 
     // store color, iteration, and position in historys
+    // imageStore(pos, ivec2(gl_LaunchIDEXT.xy), vec4(firstHitPos, 1));
 
 }

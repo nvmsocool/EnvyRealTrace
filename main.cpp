@@ -278,7 +278,10 @@ int main(int argc, char** argv)
       ImGui::Render();
       ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
       vkCmdEndRenderPass(cmdBuf);
+
     }
+
+
 
     // Submit for display
     vkEndCommandBuffer(cmdBuf);

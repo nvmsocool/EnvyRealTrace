@@ -116,8 +116,8 @@ public:
   VkPipelineLayout            m_postPipelineLayout{VK_NULL_HANDLE};
   VkRenderPass                m_offscreenRenderPass{VK_NULL_HANDLE};
   VkFramebuffer               m_offscreenFramebuffer{VK_NULL_HANDLE};
-  nvvk::Texture               m_offscreenColor;
-  nvvk::Texture               m_offscreenDepth;
+  nvvk::Texture               m_offscreenColor, m_offscreenPos, m_offscreenColorHistory, m_offscreenPosHistory;
+  nvvk::Texture               m_offscreenDepth, m_offscreenVariance, m_offscreenIterationHistory, m_offscreenVarianceHistory;
   VkFormat                    m_offscreenColorFormat{VK_FORMAT_R32G32B32A32_SFLOAT};
   VkFormat                    m_offscreenDepthFormat{VK_FORMAT_X8_D24_UNORM_PACK32};
 
@@ -166,5 +166,9 @@ public:
   //AA
   void ResetFrame();
   void updateFrame();
+
+  //history
+  mat4        m_priorViewProj;
+  VkImageCopy m_copy_region;
 
 };
