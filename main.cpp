@@ -213,7 +213,20 @@ int main(int argc, char** argv)
     {
       ImGuiH::Panel::Begin();
       ImGui::ColorEdit3("Clear color", reinterpret_cast<float*>(&clearColor));
-      ImGui::Checkbox("Ray Tracer mode", &useRaytracer);
+      if(ImGui::Checkbox("Ray Tracer mode", &useRaytracer))
+        helloVk.ResetFrame();
+      if (ImGui::InputFloat("Jitter", &helloVk.m_pcRay.jitter))
+        helloVk.ResetFrame();
+      if(ImGui::Checkbox("history view", &helloVk.m_pcRay.historyView))
+        helloVk.ResetFrame();
+      if (ImGui::InputFloat("position hit tolerance", &helloVk.m_pcRay.posTolerance))
+        helloVk.ResetFrame();
+      if (ImGui::Checkbox("explicit", &helloVk.m_pcRay.ExplicitLightRays))
+        helloVk.ResetFrame();
+      if(helloVk.m_pcRay.historyView)
+      {
+        ImGui::InputFloat("rainbowDelay", &helloVk.m_pcRay.numSteps);
+      }
       renderUI(helloVk);
       ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
       ImGuiH::Control::Info("", "", "(F10) Toggle Pane", ImGuiH::Control::Flags::Disabled);

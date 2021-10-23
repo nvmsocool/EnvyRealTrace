@@ -94,6 +94,12 @@ struct PushConstantRay
   int   lightType;
   int   randSeed;
   int   frame;
+  bool  historyView;
+  float jitter;
+  float numSteps;
+  bool  ExplicitLightRays;
+  float posTolerance;
+  vec3  randLightPos;
 };
 
 struct Vertex  // See ObjLoader, copy of VertexObj, could be compressed for device

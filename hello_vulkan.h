@@ -59,6 +59,7 @@ public:
     nvvk::Buffer indexBuffer;     // Device buffer of the indices forming triangles
     nvvk::Buffer matColorBuffer;  // Device buffer of array of 'Wavefront material'
     nvvk::Buffer matIndexBuffer;  // Device buffer of array of 'Wavefront material'
+    float        max_lum = 0;
   };
 
   struct ObjInstance
@@ -77,10 +78,18 @@ public:
       0                   // light type
   };
 
+  struct rt_light
+  {
+    float area, probability;
+    vec3  p1, p2, p3;
+    vec3  p12, p13;
+  };
+
   // Array of objects and instances in the scene
   std::vector<ObjModel>    m_objModel;   // Model on host
   std::vector<ObjDesc>     m_objDesc;    // Model description for device access
   std::vector<ObjInstance> m_instances;  // Scene model instances
+  std::vector<rt_light>    m_lights;
 
 
   // Graphic pipeline

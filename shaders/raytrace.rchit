@@ -27,12 +27,6 @@ layout(location = 1) rayPayloadInEXT vec3 hitValue;
 
 hitAttributeEXT vec3 attribs;
 
-vec3 scaleEmittence(vec3 e)
-{
-  e *= 0.99999999999999;
-  return vec3(pow(e.x/(1-e.x),2),pow(e.y/(1-e.y),2),pow(e.z/(1-e.z),2));
-}
-
 void main()
 {
     // Object data
@@ -61,7 +55,6 @@ void main()
     // Material of the object
     int               matIdx = matIndices.i[gl_PrimitiveID];
     WaveFrontMaterial mat    = materials.m[matIdx];
-    vec3         emittance = scaleEmittence(mat.emission);
 
     // Pick a random direction from here and keep going.
     vec3 tangent, bitangent;
@@ -78,7 +71,7 @@ void main()
     
     prd.rayOrigin    = rayOrigin;
     prd.rayDirection = rayDirection;
-    prd.hitValue     = emittance;
+    prd.hitValue     = mat.emission;
     prd.weight       = BRDF * cos_theta / p;
     return;
 

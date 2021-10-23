@@ -197,6 +197,14 @@ void HelloVulkan::createGraphicsPipeline()
   m_debug.setObjectName(m_graphicsPipeline, "Graphics");
 }
 
+vec3 VertexObj_to_vec3(VertexObj& vo) {
+  vec3 ret;
+  ret.x = vo.pos[0];
+  ret.y = vo.pos[1];
+  ret.z = vo.pos[2];
+  return ret;
+}
+
 //--------------------------------------------------------------------------------------------------
 // Loading the OBJ file and setting up all buffers
 //
@@ -206,17 +214,53 @@ size_t HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transfo
   ObjLoader loader;
   loader.loadModel(filename);
 
+  int i = 0;
+  float total_light_area = 0;
   // Converting from Srgb to linear
   for(auto& m : loader.m_materials)
   {
     m.ambient  = nvmath::pow(m.ambient, 2.2f);
     m.diffuse  = nvmath::pow(m.diffuse, 2.2f);
     m.specular = nvmath::pow(m.specular, 2.2f);
+    m.emission *= 0.99999999999999;
+    m.emission = nvmath::vec3f(pow(m.emission[0] / (1 - m.emission[0]), 2), 
+                               pow(m.emission[1] / (1 - m.emission[1]), 2),
+                               pow(m.emission[2] / (1 - m.emission[2]), 2));
+    
+    
+    if(m.emission[0] + m.emission[1] + m.emission[2] > 0.01f)
+    {
+      rt_light l;
+      l.p1 = VertexObj_to_vec3(loader.m_vertices[3*i]);
+      l.p2 = VertexObj_to_vec3(loader.m_vertices[3*i+1]);
+      l.p3 = VertexObj_to_vec3(loader.m_vertices[3*i+2]);
+
+      vec3 AC = l.p2 - l.p1;
+      vec3 AB = l.p3 = l.p1;
+      l.p12          = AC;
+      l.p13          = AB;
+      l.area = sqrt(
+        pow(AB.y * AC.z-AB.z * AC.y, 2) + 
+        pow(AB.z * AC.x-AB.x * AC.z, 2) + 
+        pow(AB.x * AC.y-AB.y * AC.x, 2));
+      
+      total_light_area += l.area;
+
+      m_lights.push_back(l);
+    }
+
+    i++;
+  }
+
+  for(auto &l : m_lights)
+  {
+    l.probability = l.area / total_light_area;
   }
 
   ObjModel model;
   model.nbIndices  = static_cast<uint32_t>(loader.m_indices.size());
   model.nbVertices = static_cast<uint32_t>(loader.m_vertices.size());
+  model.max_lum    = 0;
 
   // Create the buffers on Device and copy vertices, indices and materials
   nvvk::CommandPool  cmdBufGet(m_device, m_graphicsQueueIndex);
@@ -702,6 +746,8 @@ void HelloVulkan::initRayTracing()
   vkGetPhysicalDeviceProperties2(m_physicalDevice, &prop2);
 
   m_rtBuilder.setup(m_device, &m_alloc, m_graphicsQueueIndex);
+
+  m_pcRay.posTolerance = 0.1;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -762,6 +808,10 @@ void HelloVulkan::createBottomLevelAS()
     allBlas.emplace_back(blas);
   }
   m_rtBuilder.buildBlas(allBlas, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
+
+  m_pcRay.jitter   = 0.0;
+  m_pcRay.numSteps = 100.0;
+
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -795,11 +845,11 @@ void HelloVulkan::createRtDescriptorSet()
   m_rtDescSetLayoutBind.addBinding(RtxBindings::eOutImage, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
   m_rtDescSetLayoutBind.addBinding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
-                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
-  m_rtDescSetLayoutBind.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
-                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
+                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Color History
+  m_rtDescSetLayoutBind.addBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Position History
   m_rtDescSetLayoutBind.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
-                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
+                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Position
 
   m_rtDescPool      = m_rtDescSetLayoutBind.createPool(m_device);
   m_rtDescSetLayout = m_rtDescSetLayoutBind.createLayout(m_device);
@@ -1027,6 +1077,10 @@ void HelloVulkan::createRtShaderBindingTable()
   m_alloc.finalizeAndReleaseStaging();
 }
 
+float randf() {
+  return (float)rand() / (float)RAND_MAX;
+}
+
 //--------------------------------------------------------------------------------------------------
 // Ray Tracing the scene
 //
@@ -1040,6 +1094,27 @@ void HelloVulkan::raytrace(const VkCommandBuffer& cmdBuf, const nvmath::vec4f& c
   m_pcRay.lightIntensity = m_pcRaster.lightIntensity;
   m_pcRay.lightType      = m_pcRaster.lightType;
   m_pcRay.randSeed       = rand();
+
+  //get one random light position to test
+  float rand_light = randf();
+  float c          = 0;
+  for(auto const &l : m_lights)
+  {
+    c += l.probability;
+    if(c > rand_light)
+    {
+      //pick random point on triangle
+      float a = randf();
+      float b = randf();
+      if(a + b > 1)
+      {
+        a = 1 - a;
+        b = 1 - b;
+      }
+      m_pcRay.randLightPos = a * l.p12 + b * l.p13;
+      break;
+    }
+  }
 
   std::vector<VkDescriptorSet> descSets{m_rtDescSet, m_descSet};
   vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_rtPipeline);
@@ -1100,7 +1175,6 @@ void HelloVulkan::updateFrame()
 
   if(memcmp(&refCamMatrix.a00, &m.a00, sizeof(nvmath::mat4f)) != 0 || refFov != fov)
   {
-    ResetFrame();
     refCamMatrix = m;
     refFov       = fov;
   }
