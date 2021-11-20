@@ -13,7 +13,7 @@ layout(set = 1, binding = eGlobals) uniform _GlobalUniforms { GlobalUniforms uni
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 1, set = 0, rgba32f) uniform image2D image;
-layout(binding = 2, set = 0) uniform sampler2D colorHistory;
+layout(binding = 2, set = 0, rgba32f) uniform image2D colorHistory;
 layout(binding = 3, set = 0) uniform sampler2D posHistory;
 layout(binding = 4, set = 0, rgba32f) uniform image2D pos;
 
@@ -94,6 +94,7 @@ void main()
 
     bool first = true;
     vec3 firstHitPos = vec3(0);
+    uint firstHitNorm;
 
     for(prd.depth = 0; prd.depth < 10; prd.depth++)
     {
@@ -117,6 +118,7 @@ void main()
         {
           first = false;
           firstHitPos = prd.rayOrigin;
+          firstHitNorm = CompressUnitVec(prd.hitNorm);
         }
 
         
@@ -166,15 +168,21 @@ void main()
     float f = pcRay.frame;
 
     //store the first hit from this frame
-    imageStore(pos, ivec2(gl_LaunchIDEXT.xy), vec4(firstHitPos, 1));
+    imageStore(pos, ivec2(gl_LaunchIDEXT.xy), vec4(firstHitPos, uintBitsToFloat(firstHitNorm)));
 
     // find equivelant fragment from last frame, based on world position
     // store camera perpectice from last frame, re-calculate screen space of point
 
     vec4 screenProjected = (uni.priorViewProj * vec4(firstHitPos, 1.0));
-    vec2 screenspace = ((screenProjected.xy / screenProjected.w) + vec2(1)) / 2;
-    vec3 subPixelLocation = fract((screenspace * gl_LaunchIDEXT.xy));
-    float subPixelError = (subPixelLocation.x + subPixelLocation.y) / 2;
+    vec2 screenspace = ((screenProjected.xy / screenProjected.w) + vec2(1.0)) / 2.0;
+    vec2 subPixelLocation = fract(screenspace * gl_LaunchSizeEXT.xy) - vec2(0.5);
+    vec2 pixelPct = subPixelLocation;
+    if (subPixelLocation.x > 0.5)
+      subPixelLocation.x = 1 - subPixelLocation.x;
+    if (subPixelLocation.y > 0.5)
+      subPixelLocation.y = 1 - subPixelLocation.y;
+      // 1 is fully erroneous
+    float subPixelError = abs(subPixelLocation.x) + abs(subPixelLocation.y);
     
     float frame = 0;
     vec3 old_color;
@@ -188,9 +196,25 @@ void main()
       {
         // fragment was not occluded in last camera view
         // pull color and frame from colorHistory
-        vec4 history = texture(colorHistory, screenspace);
+        //vec4 history = texture(colorHistory, screenspace);
+        vec2 loc_f = screenspace * gl_LaunchSizeEXT.xy;
+        ivec2 location = ivec2(floor(loc_f));
+        vec4 h_00 = imageLoad(colorHistory, location);
+        vec4 h_10 = imageLoad(colorHistory, location + ivec2(1,0));
+        vec4 h_01 = imageLoad(colorHistory, location + ivec2(0,1));
+        vec4 h_11 = imageLoad(colorHistory, location + ivec2(1,1));
+        vec4 history = 
+          h_11 * pixelPct.x * pixelPct.y +
+          h_10 * pixelPct.x * (1-pixelPct.y) +
+          h_01 * (1-pixelPct.x) * pixelPct.y + 
+          h_00 * (1 - pixelPct.x) * (1 - pixelPct.y);
+
+        history = imageLoad(colorHistory, location);
         old_color = history.xyz;
-        frame = history.w * subPixelError * pcRay.subPixelErrRedux;
+
+        //map 0,1, with 1 = max error, to 1 * subPixelReduction, 0
+        
+        frame = history.w * (1-subPixelError * pcRay.subPixelErrRedux);
       }
     }
 

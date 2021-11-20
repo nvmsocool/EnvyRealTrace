@@ -100,6 +100,7 @@ struct PushConstantRay
   bool  ExplicitLightRays;
   float posTolerance;
   vec3  randLightPos;
+  float subPixelErrRedux;
 };
 
 struct Vertex  // See ObjLoader, copy of VertexObj, could be compressed for device
@@ -124,5 +125,17 @@ struct WaveFrontMaterial  // See ObjLoader, copy of MaterialObj, could be compre
   int   textureId;
 };
 
+
+// Push constant structure for the ray tracer
+struct PushConstantDenoise
+{
+  float normFactor;
+  float depthFactor;
+  float varianceFactor;
+  float lumenFactor;
+
+  int dist;
+
+};
 
 #endif

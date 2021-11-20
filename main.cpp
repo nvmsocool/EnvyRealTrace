@@ -191,6 +191,13 @@ int main(int argc, char** argv)
   helloVk.createPostDescriptor();
   helloVk.createPostPipeline();
   helloVk.updatePostDescriptorSet();
+
+  
+  helloVk.createDenoiseDescriptorSet();
+  helloVk.updateDenoiseCompDescriptors();
+  helloVk.createDenoiseCompPipeline();
+
+
   nvmath::vec4f clearColor = nvmath::vec4f(1, 1, 1, 1.00f);
 
 
@@ -217,6 +224,10 @@ int main(int argc, char** argv)
         helloVk.ResetFrame();
       if (ImGui::InputFloat("Jitter", &helloVk.m_pcRay.jitter))
         helloVk.ResetFrame();
+      if(ImGui::InputInt("AtrousIterations", &helloVk.m_num_atrous_iterations))
+        helloVk.ResetFrame();
+      if(ImGui::InputFloat("DenoiseDepthFactor", &helloVk.m_denoisePushConstants.depthFactor))
+        helloVk.ResetFrame();
       if(ImGui::Checkbox("history view", &helloVk.m_pcRay.historyView))
         helloVk.ResetFrame();
       if (ImGui::InputFloat("position hit tolerance", &helloVk.m_pcRay.posTolerance))
@@ -227,6 +238,8 @@ int main(int argc, char** argv)
       {
         ImGui::InputFloat("rainbowDelay", &helloVk.m_pcRay.numSteps);
       }
+      if(ImGui::InputFloat("Sub-pixel sampling redux", &helloVk.m_pcRay.subPixelErrRedux))
+        helloVk.ResetFrame();
       renderUI(helloVk);
       ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
       ImGuiH::Control::Info("", "", "(F10) Toggle Pane", ImGuiH::Control::Flags::Disabled);
@@ -265,6 +278,7 @@ int main(int argc, char** argv)
       if (useRaytracer)
       {
         helloVk.raytrace(cmdBuf, clearColor);
+        helloVk.runCompute(cmdBuf);
       }
       else
       {

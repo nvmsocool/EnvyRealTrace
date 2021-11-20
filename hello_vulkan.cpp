@@ -444,6 +444,7 @@ void HelloVulkan::destroyResources()
 
   //#Post
   m_alloc.destroy(m_offscreenColor);
+  m_alloc.destroy(m_denoiseBuffer);
   m_alloc.destroy(m_offscreenColorHistory);
   m_alloc.destroy(m_offscreenPosHistory);
   m_alloc.destroy(m_offscreenDepth);
@@ -515,6 +516,7 @@ void HelloVulkan::onResize(int /*w*/, int /*h*/)
 void HelloVulkan::createOffscreenRender()
 {
   m_alloc.destroy(m_offscreenColor);
+  m_alloc.destroy(m_denoiseBuffer);
   m_alloc.destroy(m_offscreenDepth);
   m_alloc.destroy(m_offscreenColorHistory);
   m_alloc.destroy(m_offscreenIterationHistory);
@@ -523,86 +525,81 @@ void HelloVulkan::createOffscreenRender()
   m_alloc.destroy(m_offscreenPos);
   m_alloc.destroy(m_offscreenVariance);
 
+  auto colorCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenColorFormat,
+                                                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                                                         | VK_IMAGE_USAGE_STORAGE_BIT);
+
+  VkSamplerCreateInfo history_sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+  history_sampler.magFilter  = VK_FILTER_LINEAR;
+  history_sampler.minFilter = VK_FILTER_LINEAR;
+  history_sampler.anisotropyEnable = VK_TRUE;
+  history_sampler.maxAnisotropy    = 16;
+
+  VkSamplerCreateInfo color_sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+
   // Creating the color image
   {
-    auto src_colorCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenColorFormat,
-                                                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-                                                           | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-    auto dst_colorCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenColorFormat,
-                                                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-                                                               | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+    nvvk::Image           image                    = m_alloc.createImage(colorCreateInfo);
+    VkImageViewCreateInfo ivInfo                   = nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
+    m_offscreenColor                               = m_alloc.createTexture(image, ivInfo, color_sampler);
+    m_offscreenColor.descriptor.imageLayout        = VK_IMAGE_LAYOUT_GENERAL;
 
+    image                                          = m_alloc.createImage(colorCreateInfo);
+    ivInfo                                         = nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
+    m_offscreenPos                                 = m_alloc.createTexture(image, ivInfo, color_sampler);
+    m_offscreenPos.descriptor.imageLayout          = VK_IMAGE_LAYOUT_GENERAL;
 
-    nvvk::Image           image  = m_alloc.createImage(dst_colorCreateInfo);
-    VkImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, dst_colorCreateInfo);
-    VkSamplerCreateInfo   sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    m_offscreenColor                        = m_alloc.createTexture(image, ivInfo, sampler);
-    m_offscreenColor.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    image                                 = m_alloc.createImage(src_colorCreateInfo);
-    ivInfo                                = nvvk::makeImageViewCreateInfo(image.image, src_colorCreateInfo);
-    m_offscreenPos                        = m_alloc.createTexture(image, ivInfo, sampler);
-    m_offscreenPos.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-  }
-
-  // Create color history
-  // The G-Buffer (rgba32f) - position(xyz) / normal(w-compressed)
-  {
-    auto createInfo = nvvk::makeImage2DCreateInfo(m_size, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-                                                           | VK_IMAGE_USAGE_STORAGE_BIT);
-
-
-    nvvk::Image           image      = m_alloc.createImage(createInfo);
-    VkImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, createInfo);
-    VkSamplerCreateInfo   sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    m_offscreenColorHistory          = m_alloc.createTexture(image, ivInfo, sampler);
+    image                                          = m_alloc.createImage(colorCreateInfo);
+    ivInfo                                         = nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
+    m_offscreenColorHistory                        = m_alloc.createTexture(image, ivInfo, history_sampler);
     m_offscreenColorHistory.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  }
 
-  // Create position hisory
-  // The G-Buffer (rgba32f) - position(xyz) / normal(w-compressed)
-  {
-    auto createInfo = nvvk::makeImage2DCreateInfo(m_size, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-                                                      | VK_IMAGE_USAGE_STORAGE_BIT);
-
-
-    nvvk::Image           image  = m_alloc.createImage(createInfo);
-    VkImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, createInfo);
-    VkSamplerCreateInfo   sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    m_offscreenPosHistory                          = m_alloc.createTexture(image, ivInfo, sampler);
-    m_offscreenPosHistory.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    image                                          = m_alloc.createImage(colorCreateInfo);
+    ivInfo                                         = nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
+    m_offscreenPosHistory                          = m_alloc.createTexture(image, ivInfo, history_sampler);
+    m_offscreenPosHistory.descriptor.imageLayout   = VK_IMAGE_LAYOUT_GENERAL;
   }
 
   // Creating the depth buffer
   auto depthCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenDepthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
   {
-    nvvk::Image image = m_alloc.createImage(depthCreateInfo);
-
 
     VkImageViewCreateInfo depthStencilView{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     depthStencilView.viewType         = VK_IMAGE_VIEW_TYPE_2D;
     depthStencilView.format           = m_offscreenDepthFormat;
     depthStencilView.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    depthStencilView.image            = image.image;
 
-    m_offscreenDepth = m_alloc.createTexture(image, depthStencilView);
+    nvvk::Image image           = m_alloc.createImage(depthCreateInfo);
+    depthStencilView.image      = image.image;
+    m_offscreenDepth            = m_alloc.createTexture(image, depthStencilView);
 
-    
-    image                   = m_alloc.createImage(depthCreateInfo);
-    depthStencilView.image  = image.image;
+    image                       = m_alloc.createImage(depthCreateInfo);
+    depthStencilView.image      = image.image;
     m_offscreenIterationHistory = m_alloc.createTexture(image, depthStencilView);
 
-    image                      = m_alloc.createImage(depthCreateInfo);
-    depthStencilView.image     = image.image;
-    m_offscreenVarianceHistory = m_alloc.createTexture(image, depthStencilView);
+    image                       = m_alloc.createImage(depthCreateInfo);
+    depthStencilView.image      = image.image;
+    m_offscreenVarianceHistory  = m_alloc.createTexture(image, depthStencilView);
 
-    image                      = m_alloc.createImage(depthCreateInfo);
-    depthStencilView.image     = image.image;
-    m_offscreenVariance = m_alloc.createTexture(image, depthStencilView);
+    image                       = m_alloc.createImage(depthCreateInfo);
+    depthStencilView.image      = image.image;
+    m_offscreenVariance         = m_alloc.createTexture(image, depthStencilView);
 
+  }
+
+  // Denoise result
+  {
+    VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    auto                colorCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenColorFormat,
+                                                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                                                           | VK_IMAGE_USAGE_STORAGE_BIT);
+
+
+    nvvk::Image           image       = m_alloc.createImage(colorCreateInfo);
+    VkImageViewCreateInfo ivInfo      = nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
+    m_denoiseBuffer                        = m_alloc.createTexture(image, ivInfo, sampler);
+    m_denoiseBuffer.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    m_debug.setObjectName(m_denoiseBuffer.image, "denoiseBuffer");
   }
 
   // Setting the image layout for both color and depth
@@ -747,6 +744,8 @@ void HelloVulkan::initRayTracing()
 
   m_rtBuilder.setup(m_device, &m_alloc, m_graphicsQueueIndex);
 
+  m_maxAnis = prop2.properties.limits.maxSamplerAnisotropy;
+
   m_pcRay.posTolerance = 0.1;
 }
 
@@ -844,9 +843,9 @@ void HelloVulkan::createRtDescriptorSet()
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);  // TLAS
   m_rtDescSetLayoutBind.addBinding(RtxBindings::eOutImage, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
-  m_rtDescSetLayoutBind.addBinding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+  m_rtDescSetLayoutBind.addBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Color History
-  m_rtDescSetLayoutBind.addBinding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+  m_rtDescSetLayoutBind.addBinding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Position History
   m_rtDescSetLayoutBind.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Position
@@ -869,7 +868,9 @@ void HelloVulkan::createRtDescriptorSet()
   
   VkDescriptorImageInfo imageInfo{{}, m_offscreenColor.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorImageInfo colorHistInfo{{}, m_offscreenColorHistory.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
+  colorHistInfo.sampler = m_offscreenColorHistory.descriptor.sampler;
   VkDescriptorImageInfo positionHistInfo{{}, m_offscreenPosHistory.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
+  positionHistInfo.sampler = m_offscreenPosHistory.descriptor.sampler;
   VkDescriptorImageInfo positionInfo{{}, m_offscreenPos.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
 
   std::vector<VkWriteDescriptorSet> writes;
@@ -1179,4 +1180,138 @@ void HelloVulkan::updateFrame()
     refFov       = fov;
   }
   m_pcRay.frame++;
+}
+
+// Denoising
+
+void HelloVulkan::createDenoiseDescriptorSet()
+{
+  m_denoiseDescSetLayoutBind.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);  // [in] G-Buffer
+  m_denoiseDescSetLayoutBind.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);  // [out] AO
+  m_denoiseDescSetLayoutBind.addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT);  // pos buffer
+
+  m_denoiseDescSetLayout = m_denoiseDescSetLayoutBind.createLayout(m_device);
+  m_denoiseDescPool   = m_denoiseDescSetLayoutBind.createPool(m_device, 1);
+  m_denoiseDescSet       = nvvk::allocateDescriptorSet(m_device, m_denoiseDescPool, m_denoiseDescSetLayout);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Setting up the values to the descriptors
+//
+void HelloVulkan::updateDenoiseCompDescriptors()
+{
+  std::vector<VkWriteDescriptorSet> writes;
+  writes.emplace_back(m_denoiseDescSetLayoutBind.makeWrite(m_denoiseDescSet, 0, &m_offscreenColor.descriptor));
+  writes.emplace_back(m_denoiseDescSetLayoutBind.makeWrite(m_denoiseDescSet, 1, &m_denoiseBuffer.descriptor));
+  writes.emplace_back(m_denoiseDescSetLayoutBind.makeWrite(m_denoiseDescSet, 2, &m_offscreenPos.descriptor));
+
+  vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Creating the pipeline: shader ...
+//
+void HelloVulkan::createDenoiseCompPipeline()
+{
+  // pushing time
+  VkPushConstantRange        push_constants = {VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstantDenoise)};
+  VkPipelineLayoutCreateInfo plCreateInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  plCreateInfo.setLayoutCount         = 1;
+  plCreateInfo.pSetLayouts            = &m_denoiseDescSetLayout;
+  plCreateInfo.pushConstantRangeCount = 1;
+  plCreateInfo.pPushConstantRanges    = &push_constants;
+  vkCreatePipelineLayout(m_device, &plCreateInfo, nullptr, &m_denoiseCompPipelineLayout);
+
+  m_denoisePushConstants.depthFactor = 0.5;
+
+  VkComputePipelineCreateInfo cpCreateInfo{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+  cpCreateInfo.layout = m_denoiseCompPipelineLayout;
+
+  cpCreateInfo.stage = nvvk::createShaderStageInfo(m_device, nvh::loadFile("spv/denoiseX.comp.spv", true, defaultSearchPaths, true),
+                                                   VK_SHADER_STAGE_COMPUTE_BIT);
+  vkCreateComputePipelines(m_device, {}, 1, &cpCreateInfo, nullptr, &m_denoisePipelineX);
+  vkDestroyShaderModule(m_device, cpCreateInfo.stage.module, nullptr);
+
+  cpCreateInfo.stage = nvvk::createShaderStageInfo(m_device, nvh::loadFile("spv/denoiseY.comp.spv", true, defaultSearchPaths, true),
+                                                   VK_SHADER_STAGE_COMPUTE_BIT);
+  vkCreateComputePipelines(m_device, {}, 1, &cpCreateInfo, nullptr, &m_denoisePipelineY);
+  vkDestroyShaderModule(m_device, cpCreateInfo.stage.module, nullptr);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Running compute shader
+//
+#define GROUP_SIZE 16  // Same group size as in compute shader
+void HelloVulkan::runCompute(VkCommandBuffer cmdBuf)
+{
+
+  m_debug.beginLabel(cmdBuf, "Compute");
+
+  // Wait for RT to finish
+  VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  VkImageMemoryBarrier    imgMemBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+  imgMemBarrier.srcAccessMask    = VK_ACCESS_SHADER_WRITE_BIT;
+  imgMemBarrier.dstAccessMask    = VK_ACCESS_SHADER_READ_BIT;
+  imgMemBarrier.image            = m_offscreenColor.image;
+  imgMemBarrier.oldLayout        = VK_IMAGE_LAYOUT_GENERAL;
+  imgMemBarrier.newLayout        = VK_IMAGE_LAYOUT_GENERAL;
+  imgMemBarrier.subresourceRange = range;
+
+  vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_DEPENDENCY_DEVICE_GROUP_BIT, 0, nullptr, 0, nullptr, 1, &imgMemBarrier);
+
+  for(size_t i = 1; i <= m_num_atrous_iterations; i++)
+  {
+    m_denoisePushConstants.dist = i;
+
+    // X
+    {
+
+      // Preparing for the compute shader
+      vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoisePipelineX);
+      vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoiseCompPipelineLayout, 0, 1,
+                              &m_denoiseDescSet, 0, nullptr);
+
+
+      // Sending the push constant information
+      vkCmdPushConstants(cmdBuf, m_denoiseCompPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                         sizeof(PushConstantDenoise), &m_denoisePushConstants);
+
+      // Dispatching the shader
+      vkCmdDispatch(cmdBuf, (m_size.width + (GROUP_SIZE - 1)) / GROUP_SIZE, m_size.height, 1);
+
+
+      // Wait until denoise x buffer is coplete
+      imgMemBarrier.image = m_denoiseBuffer.image;
+      vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                           VK_DEPENDENCY_DEVICE_GROUP_BIT, 0, nullptr, 0, nullptr, 1, &imgMemBarrier);
+    }
+
+    // Y
+    {
+
+      // Preparing for the compute shader
+      vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoisePipelineY);
+      vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_denoiseCompPipelineLayout, 0, 1,
+                              &m_denoiseDescSet, 0, nullptr);
+
+
+      // Sending the push constant information
+      vkCmdPushConstants(cmdBuf, m_denoiseCompPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                         sizeof(PushConstantDenoise), &m_denoisePushConstants);
+
+      // Dispatching the shader
+      vkCmdDispatch(cmdBuf, m_size.width, (m_size.height + (GROUP_SIZE - 1)) / GROUP_SIZE, 1);
+
+
+      // Wait until we're done writing back to the color buffer
+      imgMemBarrier.image = m_offscreenColor.image;
+      vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                           VK_DEPENDENCY_DEVICE_GROUP_BIT, 0, nullptr, 0, nullptr, 1, &imgMemBarrier);
+    }
+  }
+  
+
+
+  m_debug.endLabel(cmdBuf);
 }

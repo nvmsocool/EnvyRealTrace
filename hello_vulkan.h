@@ -125,8 +125,10 @@ public:
   VkPipelineLayout            m_postPipelineLayout{VK_NULL_HANDLE};
   VkRenderPass                m_offscreenRenderPass{VK_NULL_HANDLE};
   VkFramebuffer               m_offscreenFramebuffer{VK_NULL_HANDLE};
+  nvvk::Texture               m_gBuffer, m_gBufferHistory;
   nvvk::Texture               m_offscreenColor, m_offscreenPos, m_offscreenColorHistory, m_offscreenPosHistory;
   nvvk::Texture               m_offscreenDepth, m_offscreenVariance, m_offscreenIterationHistory, m_offscreenVarianceHistory;
+  nvvk::Texture               m_denoiseBuffer;
   VkFormat                    m_offscreenColorFormat{VK_FORMAT_R32G32B32A32_SFLOAT};
   VkFormat                    m_offscreenDepthFormat{VK_FORMAT_X8_D24_UNORM_PACK32};
 
@@ -179,5 +181,22 @@ public:
   //history
   mat4        m_priorViewProj;
   VkImageCopy m_copy_region;
+
+  float m_maxAnis = 0;
+
+  // denoiser compute pass setup
+  void createDenoiseDescriptorSet();
+  void createDenoiseCompPipeline();
+  void updateDenoiseCompDescriptors();
+  void runCompute(VkCommandBuffer cmdBuf);
+
+  nvvk::DescriptorSetBindings m_denoiseDescSetLayoutBind;
+  VkDescriptorPool            m_denoiseDescPool;
+  VkDescriptorSetLayout       m_denoiseDescSetLayout;
+  VkDescriptorSet             m_denoiseDescSet;
+  VkPipelineLayout            m_denoiseCompPipelineLayout;
+  VkPipeline                  m_denoisePipelineX, m_denoisePipelineY;
+  PushConstantDenoise         m_denoisePushConstants;
+  int                         m_num_atrous_iterations = 1;
 
 };

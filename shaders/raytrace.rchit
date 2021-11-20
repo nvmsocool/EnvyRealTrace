@@ -51,6 +51,8 @@ void main()
     const vec3 nrm      = v0.nrm * barycentrics.x + v1.nrm * barycentrics.y + v2.nrm * barycentrics.z;
     const vec3 worldNrm = normalize(vec3(nrm * gl_WorldToObjectEXT));  // Transforming the normal to world space
 
+    prd.hitNorm = worldNrm;
+
     // https://en.wikipedia.org/wiki/Path_tracing
     // Material of the object
     int               matIdx = matIndices.i[gl_PrimitiveID];
