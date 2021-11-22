@@ -14,8 +14,10 @@ layout(set = 1, binding = eGlobals) uniform _GlobalUniforms { GlobalUniforms uni
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 1, set = 0, rgba32f) uniform image2D image;
 layout(binding = 2, set = 0, rgba32f) uniform image2D colorHistory;
-layout(binding = 3, set = 0) uniform sampler2D posHistory;
+layout(binding = 3, set = 0, rgba32f) uniform image2D posHistory;
 layout(binding = 4, set = 0, rgba32f) uniform image2D pos;
+layout(binding = 5, set = 0) uniform sampler2D posHistorySampler;
+layout(binding = 6, set = 0, rgba32f) uniform image2D var;
 
 layout(push_constant) uniform _PushConstantRay { PushConstantRay pcRay; };
 
@@ -66,6 +68,15 @@ vec3 rainbow(float frame)
   }
 
   return vec3(r,g,b);
+}
+
+float depth_factor = pcRay.posTolerance;
+
+float getSampleWeight(vec3 firstHitNorm, vec3 firstHitPos, vec4 pos, float sampleWeight)
+{
+    float n_factor = max(0,dot(DecompressUnitVec(floatBitsToUint(pos.w)),firstHitNorm));
+	float p_factor = max(0,(depth_factor - length(pos.xyz-firstHitPos))/depth_factor);
+    return sampleWeight *n_factor *p_factor ;
 }
 
 void main() 
@@ -190,26 +201,44 @@ void main()
     if (!(screenspace.x < 0 || screenspace.x > 1 || screenspace.y < 0 || screenspace.y > 1))
     {
       // fragment was visible in last camera view
-      vec3 priorFirstHit = texture(posHistory, screenspace).xyz;
+      vec4 priorHistory = texture(posHistorySampler, screenspace);
+      vec3 priorFirstHit = priorHistory.xyz;
+      vec3 priorfirstNorm = DecompressUnitVec(firstHitNorm);
     
       if (length(priorFirstHit - firstHitPos) < pcRay.posTolerance)
       {
         // fragment was not occluded in last camera view
         // pull color and frame from colorHistory
         //vec4 history = texture(colorHistory, screenspace);
-        vec2 loc_f = screenspace * gl_LaunchSizeEXT.xy;
-        ivec2 location = ivec2(floor(loc_f));
-        vec4 h_00 = imageLoad(colorHistory, location);
+        //vec4 history = imageLoad(colorHistory, ivec2(screenspace * gl_LaunchSizeEXT.xy));
+
+        vec2 loc_f = screenspace * gl_LaunchSizeEXT.xy - vec2(0.5);
+        vec2 pixelPctOff = fract(loc_f);
+        ivec2 location = ivec2(loc_f);
+
+        vec4 h_00 = imageLoad(colorHistory, location             );
         vec4 h_10 = imageLoad(colorHistory, location + ivec2(1,0));
         vec4 h_01 = imageLoad(colorHistory, location + ivec2(0,1));
         vec4 h_11 = imageLoad(colorHistory, location + ivec2(1,1));
-        vec4 history = 
-          h_11 * pixelPct.x * pixelPct.y +
-          h_10 * pixelPct.x * (1-pixelPct.y) +
-          h_01 * (1-pixelPct.x) * pixelPct.y + 
-          h_00 * (1 - pixelPct.x) * (1 - pixelPct.y);
+        
+        vec4 p_00 = imageLoad(posHistory, location             );
+        vec4 p_10 = imageLoad(posHistory, location + ivec2(1,0));
+        vec4 p_01 = imageLoad(posHistory, location + ivec2(0,1));
+        vec4 p_11 = imageLoad(posHistory, location + ivec2(1,1));
 
-        history = imageLoad(colorHistory, location);
+        float w_11 = getSampleWeight(priorfirstNorm, firstHitPos, p_11, pixelPctOff.x * pixelPctOff.y);
+        float w_10 = getSampleWeight(priorfirstNorm, firstHitPos, p_10, pixelPctOff.x * (1-pixelPctOff.y));
+        float w_01 = getSampleWeight(priorfirstNorm, firstHitPos, p_01, (1-pixelPctOff.x) * pixelPctOff.y); 
+        float w_00 = getSampleWeight(priorfirstNorm, firstHitPos, p_00, (1 - pixelPctOff.x) * (1 - pixelPctOff.y));
+
+
+        vec4 history = 
+          (h_11 * w_11 + 
+          h_10 * w_10 + 
+          h_01 * w_01 + 
+          h_00 * w_00) / (w_11 + w_10 + w_01 + w_00);
+        
+        //history = imageLoad(colorHistory, location);
         old_color = history.xyz;
 
         //map 0,1, with 1 = max error, to 1 * subPixelReduction, 0
@@ -227,13 +256,15 @@ void main()
     if(frame >= 1.0 && pcRay.frame > 0)
     {
       float a         = 1.0f / frame;
-      vec3  new_color = vec3(mix(old_color, hitValue, a));
-      imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(new_color, frame+1));
+      hitValue = vec3(mix(old_color, hitValue, a));
     }
     else
     {
       // First frame, replace the value in the buffer
-      imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(hitValue, 1));
+      frame = 0;
     }
+
+    imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(hitValue, frame+1));
+    imageStore(var, ivec2(gl_LaunchIDEXT.xy), vec4(pow(hitValue,vec3(2)), 1));
 
 }

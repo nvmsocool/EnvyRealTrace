@@ -224,9 +224,12 @@ int main(int argc, char** argv)
         helloVk.ResetFrame();
       if (ImGui::InputFloat("Jitter", &helloVk.m_pcRay.jitter))
         helloVk.ResetFrame();
-      if(ImGui::InputInt("AtrousIterations", &helloVk.m_num_atrous_iterations))
-        helloVk.ResetFrame();
+      ImGui::InputInt("AtrousIterations", &helloVk.m_num_atrous_iterations);
       if(ImGui::InputFloat("DenoiseDepthFactor", &helloVk.m_denoisePushConstants.depthFactor))
+        helloVk.ResetFrame();
+      if(ImGui::InputFloat("DenoiseVarFactor", &helloVk.m_denoisePushConstants.varianceFactor))
+        helloVk.ResetFrame();
+      if(ImGui::InputFloat("DenoiseNormFactor", &helloVk.m_denoisePushConstants.normFactor))
         helloVk.ResetFrame();
       if(ImGui::Checkbox("history view", &helloVk.m_pcRay.historyView))
         helloVk.ResetFrame();

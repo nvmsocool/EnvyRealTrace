@@ -1,8 +1,8 @@
 @echo on
 SETLOCAL ENABLEDELAYEDEXPANSION
 D:
-cd D:\CPP__Projects\EnvyRealTrace\vk_raytracing_tutorial_KHR\ray_tracing__before\shaders
-set converter=D:\VulkanSDK\1.2.182.0\Bin\glslc.exe
+cd D:\SchoolWork\vk_raytracing_tutorial_KHR\ray_tracing__before\shaders
+set converter=D:\VulkanSDK\1.2.189.1\Bin\glslc.exe
 for /R %%V in (*.vert *.frag *.comp *.rchit *.rgen *.rmiss) do (
     set in=%%V
     set out=..\spv\%%~nV%%~xV.spv

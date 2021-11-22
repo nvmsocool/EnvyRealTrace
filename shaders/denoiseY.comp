@@ -12,12 +12,16 @@ layout(local_size_x = 1, local_size_y = GROUP_SIZE, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba32f) uniform image2D outImage;
 layout(set = 0, binding = 1, rgba32f) uniform image2D inImage;
 layout(set = 0, binding = 2, rgba32f) uniform image2D gBuff;
+layout(set = 0, binding = 3, rgba32f) uniform image2D varBuff;
 
  // Variables shared with other threads in the 128x1 thread group
 shared vec4 v[GROUP_SIZE+101];
 shared vec3 v_n[GROUP_SIZE+101];
 shared vec3 v_p[GROUP_SIZE+101];
-shared vec3 v_v[GROUP_SIZE+101];
+
+shared float l[GROUP_SIZE+101];
+shared float l2[GROUP_SIZE+101];
+shared float v_v[GROUP_SIZE+101];
 
 // kernel weights, hardcoded for now
 const float weights[5] = float[5](0.0625, 0.25, 0.375, 0.25, 0.0625);
@@ -46,6 +50,8 @@ void main()
 	vec4 gb = imageLoad(gBuff, gpos+ivec2(0,-extent));
 	v_p[i] = gb.xyz;
 	v_n[i] = DecompressUnitVec(floatBitsToUint(gb.w));
+    l[i] = 0.2126 * v[i].r + 0.7152 * v[i].g + 0.0722 * v[i].b;
+	l2[i] = l[i] * l[i];
 	if (i<2*extent)
 	{
 		// read extra 2*w pixels
@@ -53,9 +59,23 @@ void main()
 		vec4 gb_e = imageLoad(gBuff, gpos+ivec2(0,(GROUP_SIZE-extent)));
 		v_p[i+GROUP_SIZE] = gb_e.xyz;
 		v_n[i+GROUP_SIZE] = DecompressUnitVec(floatBitsToUint(gb_e.w));
+        
+        l[i+GROUP_SIZE] = 0.2126 * v[i+GROUP_SIZE].r + 0.7152 * v[i+GROUP_SIZE].g + 0.0722 * v[i+GROUP_SIZE].b;
+	    l2[i+GROUP_SIZE] = l[i+GROUP_SIZE] * l[i+GROUP_SIZE];
 	}
 
 	// Wait for all threads to catchup before reading v[]
+	barrier();
+    
+    float sum = 0;
+    float sum2 = 0;
+	for (int j=-w; j<=w; j++) {
+		sum += l[i+(j*nonz_dist)+extent] *  weights[j+w];
+		sum2 += l2[i+(j*nonz_dist)+extent] *  weights[j+w];
+	}
+    
+    v_v[i] = sum * sum - sum2;
+    
 	barrier();
 
 	// blur pixel
@@ -63,10 +83,13 @@ void main()
 	float total_weight = 0.0;
 	vec3 my_norm = v_n[i+extent];
 	vec3 my_pos = v_p[i+extent];
+    float my_stdev = sqrt(v_v[i+extent]);
+    float my_lum = l[i+extent];
 	for (int j=-w; j<=w; j++) {
-		float n_factor = max(0,dot(v_n[i+(j*nonz_dist)+extent],my_norm));
-		float p_factor = max(0,(depthFactor - length(v_p[i+(j*nonz_dist)+extent]-my_pos))/depthFactor);
-		float total_factor = weights[j+w] * n_factor * p_factor;
+		float n_factor = pow(max(0,dot(v_n[i+(j*nonz_dist)+extent],my_norm)),normFactor);
+		float p_factor = min(1,max(0,(depthFactor - length(v_p[i+(j*nonz_dist)+extent]-my_pos))/depthFactor));
+        float v_factor = exp(-abs(my_lum-l[i+(j*nonz_dist)+extent])/(varianceFactor*my_stdev+0.001));
+		float total_factor = weights[j+w] * n_factor * p_factor * v_factor;
 		blurredPixel += v[i+(j*nonz_dist)+extent] * total_factor;
 		total_weight += total_factor;
 	}

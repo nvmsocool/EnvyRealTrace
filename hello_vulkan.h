@@ -126,9 +126,11 @@ public:
   VkRenderPass                m_offscreenRenderPass{VK_NULL_HANDLE};
   VkFramebuffer               m_offscreenFramebuffer{VK_NULL_HANDLE};
   nvvk::Texture               m_gBuffer, m_gBufferHistory;
-  nvvk::Texture               m_offscreenColor, m_offscreenPos, m_offscreenColorHistory, m_offscreenPosHistory;
-  nvvk::Texture               m_offscreenDepth, m_offscreenVariance, m_offscreenIterationHistory, m_offscreenVarianceHistory;
+  nvvk::Texture               m_rtCurrentBuffer, m_posCurrentBuffer, m_rtHistoryBuffer, m_posHistoryBuffer;
+  nvvk::Texture               m_iterationCurrentBuffer, m_normalCurrentBuffer, m_iterationHistoryBuffer, m_normalHistoryBuffer;
   nvvk::Texture               m_denoiseBuffer;
+  nvvk::Texture               m_outputImageBuffer;
+  nvvk::Texture               m_varianceBuffer;
   VkFormat                    m_offscreenColorFormat{VK_FORMAT_R32G32B32A32_SFLOAT};
   VkFormat                    m_offscreenDepthFormat{VK_FORMAT_X8_D24_UNORM_PACK32};
 
