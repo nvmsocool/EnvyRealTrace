@@ -633,6 +633,12 @@ void HelloVulkan::createOffscreenRender()
   {
     nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
     auto              cmdBuf = genCmdBuf.createCommandBuffer();
+    nvvk::cmdBarrierImageLayout(cmdBuf, m_denoiseBuffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    genCmdBuf.submitAndWait(cmdBuf);
+  }
+  {
+    nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
+    auto              cmdBuf = genCmdBuf.createCommandBuffer();
     nvvk::cmdBarrierImageLayout(cmdBuf, m_varianceBuffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     genCmdBuf.submitAndWait(cmdBuf);
   }
@@ -869,9 +875,9 @@ void HelloVulkan::createRtDescriptorSet()
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);  // TLAS
   m_rtDescSetLayoutBind.addBinding(RtxBindings::eOutImage, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Output image
-  m_rtDescSetLayoutBind.addBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+  m_rtDescSetLayoutBind.addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Color History
-  m_rtDescSetLayoutBind.addBinding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+  m_rtDescSetLayoutBind.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Position History
   m_rtDescSetLayoutBind.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Position
@@ -1180,26 +1186,29 @@ void HelloVulkan::raytrace(const VkCommandBuffer& cmdBuf, const nvmath::vec4f& c
   imageCopyRegion.extent.height             = m_size.height;
   imageCopyRegion.extent.depth              = 1;
 
-  vkCmdCopyImage(cmdBuf, m_posCurrentBuffer.image, m_posCurrentBuffer.descriptor.imageLayout, m_posHistoryBuffer.image,
-                 m_posHistoryBuffer.descriptor.imageLayout, 1, &imageCopyRegion);
+  
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_posCurrentBuffer.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_posHistoryBuffer.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  vkCmdCopyImage(cmdBuf, m_posCurrentBuffer.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_posHistoryBuffer.image,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageCopyRegion);
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_posHistoryBuffer.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_posCurrentBuffer.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+  
 
-  vkCmdCopyImage(cmdBuf, m_rtCurrentBuffer.image, m_rtCurrentBuffer.descriptor.imageLayout, m_rtHistoryBuffer.image,
-                 m_rtHistoryBuffer.descriptor.imageLayout, 1, &imageCopyRegion);
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_rtCurrentBuffer.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-  vkCmdCopyImage(cmdBuf, m_rtCurrentBuffer.image, m_rtCurrentBuffer.descriptor.imageLayout, m_outputImageBuffer.image,
-                 m_outputImageBuffer.descriptor.imageLayout, 1, &imageCopyRegion);
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_rtHistoryBuffer.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  vkCmdCopyImage(cmdBuf, m_rtCurrentBuffer.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_rtHistoryBuffer.image,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageCopyRegion);
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_rtHistoryBuffer.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
 
-  VkImageCopy depthCopyRegion{};
-  depthCopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-  depthCopyRegion.srcSubresource.layerCount = 1;
-  depthCopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-  depthCopyRegion.dstSubresource.layerCount = 1;
-  depthCopyRegion.extent.width              = m_size.width;
-  depthCopyRegion.extent.height             = m_size.height;
-  depthCopyRegion.extent.depth              = 1;
+  
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_outputImageBuffer.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  vkCmdCopyImage(cmdBuf, m_rtCurrentBuffer.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_outputImageBuffer.image,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageCopyRegion);
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_outputImageBuffer.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
 
-  vkCmdCopyImage(cmdBuf, m_iterationCurrentBuffer.image, m_iterationCurrentBuffer.descriptor.imageLayout, m_iterationHistoryBuffer.image,
-                 m_iterationHistoryBuffer.descriptor.imageLayout, 1, &depthCopyRegion);
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_rtCurrentBuffer.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
 
   m_debug.endLabel(cmdBuf);
 }
