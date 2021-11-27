@@ -7,7 +7,7 @@
 
 #include "raycommon.glsl"
 
-const int GROUP_SIZE = 16;
+const int GROUP_SIZE = 128;
 layout(local_size_x = 1, local_size_y = GROUP_SIZE, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba32f) uniform image2D outImage;
 layout(set = 0, binding = 1, rgba32f) uniform image2D inImage;
@@ -15,13 +15,14 @@ layout(set = 0, binding = 2, rgba32f) uniform image2D gBuff;
 layout(set = 0, binding = 3, rgba32f) uniform image2D varBuff;
 
  // Variables shared with other threads in the 128x1 thread group
-shared vec4 v[GROUP_SIZE+101];
-shared vec3 v_n[GROUP_SIZE+101];
-shared vec3 v_p[GROUP_SIZE+101];
+const int max_kernel_size = 129;
+shared vec4 v[GROUP_SIZE+max_kernel_size];
+shared vec3 v_n[GROUP_SIZE+max_kernel_size];
+shared vec3 v_p[GROUP_SIZE+max_kernel_size];
 
-shared float l[GROUP_SIZE+101];
-shared float l2[GROUP_SIZE+101];
-shared float v_v[GROUP_SIZE+101];
+shared float l[GROUP_SIZE+max_kernel_size];
+shared float l2[GROUP_SIZE+max_kernel_size];
+shared float v_v[GROUP_SIZE+max_kernel_size];
 
 // kernel weights, hardcoded for now
 const float weights[5] = float[5](0.0625, 0.25, 0.375, 0.25, 0.0625);
@@ -67,14 +68,50 @@ void main()
 	// Wait for all threads to catchup before reading v[]
 	barrier();
     
-    float sum = 0;
-    float sum2 = 0;
-	for (int j=-w; j<=w; j++) {
-		sum += l[i+(j*nonz_dist)+extent] *  weights[j+w];
-		sum2 += l2[i+(j*nonz_dist)+extent] *  weights[j+w];
-	}
-    
-    v_v[i] = sum * sum - sum2;
+    {
+        float sum = 0;
+        float sum2 = 0;
+	    float total_weight = 0.0;
+	    vec3 my_norm = v_n[i];
+	    vec3 my_pos = v_p[i];
+
+	    for (int j=-1; j<=1; j++) {
+		    float n_factor = pow(max(0,dot(v_n[i+j],my_norm)),normFactor);
+		    float p_factor = min(1,max(0,(depthFactor - length(v_p[i+j]-my_pos))/depthFactor));
+		    float total_factor = weights[j+w] * n_factor * p_factor;
+
+		    sum += l[i+j] *  total_factor;
+		    sum2 += l2[i+j] *  total_factor;
+		    total_weight += total_factor;
+	    }
+        
+        sum /= total_weight;
+        sum2 /= total_weight;
+        v_v[i] = sum2 - sum * sum;
+
+        // if (i<2*extent)
+        // {
+        //     sum = 0;
+        //     sum2 = 0;
+	    //     total_weight = 0.0;
+	    //     my_norm = v_n[i+GROUP_SIZE];
+	    //     my_pos = v_p[i+GROUP_SIZE];
+        // 
+	    //     for (int j=-1; j<=1; j++) {
+		//         float n_factor = pow(max(0,dot(v_n[i+GROUP_SIZE+j],my_norm)),normFactor);
+		//         float p_factor = min(1,max(0,(depthFactor - length(v_p[i+GROUP_SIZE+j]-my_pos))/depthFactor));
+		//         float total_factor = weights[j+w] * n_factor * p_factor;
+        // 
+		//         sum += l[i+GROUP_SIZE+j] *  weights[j+w] * total_factor;
+		//         sum2 += l2[i+GROUP_SIZE+j] *  weights[j+w] * total_factor;
+		//         total_weight += total_factor;
+	    //     }
+        // 
+        //     sum /= total_weight;
+        //     sum2 /= total_weight;
+        //     v_v[i+GROUP_SIZE] = sum2 - sum * sum;
+        // }
+    }
     
 	barrier();
 
@@ -83,13 +120,13 @@ void main()
 	float total_weight = 0.0;
 	vec3 my_norm = v_n[i+extent];
 	vec3 my_pos = v_p[i+extent];
-    float my_stdev = sqrt(v_v[i+extent]);
+    float my_stdev = sqrt(max(0,v_v[i+extent]));
     float my_lum = l[i+extent];
 	for (int j=-w; j<=w; j++) {
 		float n_factor = pow(max(0,dot(v_n[i+(j*nonz_dist)+extent],my_norm)),normFactor);
 		float p_factor = min(1,max(0,(depthFactor - length(v_p[i+(j*nonz_dist)+extent]-my_pos))/depthFactor));
-        float v_factor = exp(-abs(my_lum-l[i+(j*nonz_dist)+extent])/(varianceFactor*my_stdev+0.001));
-		float total_factor = weights[j+w] * v_factor;
+        float v_factor = min(1,max(0,exp(-abs(my_lum-l[i+(j*nonz_dist)+extent])/(varianceFactor*my_stdev+0.001))));
+		float total_factor = weights[j+w] * n_factor * p_factor * v_factor;
 		blurredPixel += v[i+(j*nonz_dist)+extent] * total_factor;
 		total_weight += total_factor;
 	}

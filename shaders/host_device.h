@@ -91,8 +91,8 @@ struct PushConstantRay
   vec4  clearColor;
   vec3  lightPosition;
   float lightIntensity;
-  int   lightType;
   int   randSeed;
+  int   randSeed2;
   int   frame;
   bool  historyView;
   float jitter;

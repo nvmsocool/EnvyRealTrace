@@ -445,7 +445,6 @@ void HelloVulkan::destroyResources()
   //#Post
   m_alloc.destroy(m_rtCurrentBuffer);
   m_alloc.destroy(m_outputImageBuffer);
-  m_alloc.destroy(m_varianceBuffer);
   m_alloc.destroy(m_denoiseBuffer);
   m_alloc.destroy(m_rtHistoryBuffer);
   m_alloc.destroy(m_posHistoryBuffer);
@@ -454,6 +453,7 @@ void HelloVulkan::destroyResources()
   m_alloc.destroy(m_normalHistoryBuffer);
   m_alloc.destroy(m_posCurrentBuffer);
   m_alloc.destroy(m_normalCurrentBuffer);
+  m_alloc.destroy(m_blueNoiseBuffer);
   vkDestroyPipeline(m_device, m_postPipeline, nullptr);
   vkDestroyPipelineLayout(m_device, m_postPipelineLayout, nullptr);
   vkDestroyDescriptorPool(m_device, m_postDescPool, nullptr);
@@ -527,6 +527,7 @@ void HelloVulkan::createOffscreenRender()
   m_alloc.destroy(m_normalHistoryBuffer);
   m_alloc.destroy(m_posCurrentBuffer);
   m_alloc.destroy(m_normalCurrentBuffer);
+  m_alloc.destroy(m_blueNoiseBuffer);
 
   auto colorCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenColorFormat,
                                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
@@ -552,11 +553,6 @@ void HelloVulkan::createOffscreenRender()
     m_outputImageBuffer                        = m_alloc.createTexture(image, ivInfo, color_sampler);
     m_outputImageBuffer.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-    image                                      = m_alloc.createImage(colorCreateInfo);
-    ivInfo                                     = nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
-    m_varianceBuffer                        = m_alloc.createTexture(image, ivInfo, color_sampler);
-    m_varianceBuffer.descriptor.imageLayout    = VK_IMAGE_LAYOUT_GENERAL;
-
     image                                          = m_alloc.createImage(colorCreateInfo);
     ivInfo                                         = nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
     m_posCurrentBuffer                                 = m_alloc.createTexture(image, ivInfo, color_sampler);
@@ -571,7 +567,34 @@ void HelloVulkan::createOffscreenRender()
     ivInfo                                         = nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
     m_posHistoryBuffer                          = m_alloc.createTexture(image, ivInfo, history_sampler);
     m_posHistoryBuffer.descriptor.imageLayout   = VK_IMAGE_LAYOUT_GENERAL;
+
+
+
+
+
+	// reference
+	// nvvk::Image image = m_alloc.createImage(cmdBuf, bufferSize, pixels, imageCreateInfo);
+    // nvvk::cmdGenerateMipmaps(cmdBuf, image.image, format, imgSize, imageCreateInfo.mipLevels);
+    // VkImageViewCreateInfo ivInfo  = nvvk::makeImageViewCreateInfo(image.image, imageCreateInfo);
+    // nvvk::Texture         texture = m_alloc.createTexture(image, ivInfo, samplerCreateInfo);
+
+	
+	populate_blue_noise();
+
+    auto blueCreateInfo =
+      nvvk::makeImage2DCreateInfo(m_size, VK_FORMAT_R32G32B32A32_UINT,
+                                  VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, false);
+	
+    nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
+    auto              cmdBuf = genCmdBuf.createCommandBuffer();
+
+    image                                     = m_alloc.createImage(cmdBuf, m_size.height * m_size.width * 4 * sizeof(uint), m_flat_blue_noise.data(), blueCreateInfo);
+    ivInfo                                    = nvvk::makeImageViewCreateInfo(image.image, blueCreateInfo);
+    m_blueNoiseBuffer                        = m_alloc.createTexture(image, ivInfo, color_sampler);
+    m_blueNoiseBuffer.descriptor.imageLayout  = VK_IMAGE_LAYOUT_GENERAL;
+    genCmdBuf.submitAndWait(cmdBuf);
   }
+
 
   // Creating the depth buffer
   auto depthCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenDepthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
@@ -584,19 +607,19 @@ void HelloVulkan::createOffscreenRender()
 
     nvvk::Image image           = m_alloc.createImage(depthCreateInfo);
     depthStencilView.image      = image.image;
-    m_iterationCurrentBuffer            = m_alloc.createTexture(image, depthStencilView);
+    m_iterationCurrentBuffer    = m_alloc.createTexture(image, depthStencilView);
 
     image                       = m_alloc.createImage(depthCreateInfo);
     depthStencilView.image      = image.image;
-    m_iterationHistoryBuffer = m_alloc.createTexture(image, depthStencilView);
+    m_iterationHistoryBuffer    = m_alloc.createTexture(image, depthStencilView);
 
     image                       = m_alloc.createImage(depthCreateInfo);
     depthStencilView.image      = image.image;
-    m_normalHistoryBuffer  = m_alloc.createTexture(image, depthStencilView);
+    m_normalHistoryBuffer       = m_alloc.createTexture(image, depthStencilView);
 
     image                       = m_alloc.createImage(depthCreateInfo);
     depthStencilView.image      = image.image;
-    m_normalCurrentBuffer         = m_alloc.createTexture(image, depthStencilView);
+    m_normalCurrentBuffer       = m_alloc.createTexture(image, depthStencilView);
 
   }
 
@@ -639,12 +662,6 @@ void HelloVulkan::createOffscreenRender()
   {
     nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
     auto              cmdBuf = genCmdBuf.createCommandBuffer();
-    nvvk::cmdBarrierImageLayout(cmdBuf, m_varianceBuffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-    genCmdBuf.submitAndWait(cmdBuf);
-  }
-  {
-    nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
-    auto              cmdBuf = genCmdBuf.createCommandBuffer();
     nvvk::cmdBarrierImageLayout(cmdBuf, m_rtHistoryBuffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     nvvk::cmdBarrierImageLayout(cmdBuf, m_iterationHistoryBuffer.image, VK_IMAGE_LAYOUT_UNDEFINED,
                                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -666,6 +683,12 @@ void HelloVulkan::createOffscreenRender()
                                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
     genCmdBuf.submitAndWait(cmdBuf);
   }
+  {
+    nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
+    auto              cmdBuf = genCmdBuf.createCommandBuffer();
+    nvvk::cmdBarrierImageLayout(cmdBuf, m_blueNoiseBuffer.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    genCmdBuf.submitAndWait(cmdBuf);
+  }
 
   // Creating a renderpass for the offscreen
   if(!m_offscreenRenderPass)
@@ -681,7 +704,7 @@ void HelloVulkan::createOffscreenRender()
     m_rtHistoryBuffer.descriptor.imageView, m_iterationHistoryBuffer.descriptor.imageView,
       m_posHistoryBuffer.descriptor.imageView,   m_normalHistoryBuffer.descriptor.imageView,
       m_posCurrentBuffer.descriptor.imageView, m_normalCurrentBuffer.descriptor.imageView,
-      m_varianceBuffer.descriptor.imageView
+      m_blueNoiseBuffer.descriptor.imageView
   };
 
   vkDestroyFramebuffer(m_device, m_offscreenFramebuffer, nullptr);
@@ -884,7 +907,7 @@ void HelloVulkan::createRtDescriptorSet()
   m_rtDescSetLayoutBind.addBinding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                                    VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // Position History
   m_rtDescSetLayoutBind.addBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
-                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // variance
+                                   VK_SHADER_STAGE_RAYGEN_BIT_KHR);  // blue noise
 
   m_rtDescPool      = m_rtDescSetLayoutBind.createPool(m_device);
   m_rtDescSetLayout = m_rtDescSetLayoutBind.createLayout(m_device);
@@ -912,7 +935,7 @@ void HelloVulkan::createRtDescriptorSet()
 
   VkDescriptorImageInfo positionInfo{{}, m_posCurrentBuffer.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
 
-  VkDescriptorImageInfo varianceInfo{{}, m_varianceBuffer.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo blueInfo{{}, m_blueNoiseBuffer.descriptor.imageView, VK_IMAGE_LAYOUT_GENERAL};
 
   std::vector<VkWriteDescriptorSet> writes;
   writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, RtxBindings::eTlas, &descASInfo));
@@ -921,7 +944,7 @@ void HelloVulkan::createRtDescriptorSet()
   writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 3, &positionHistInfo));
   writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 4, &positionInfo));
   writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 5, &positionHistInfo));
-  writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 6, &varianceInfo));
+  writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 6, &blueInfo));
   vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
@@ -949,8 +972,8 @@ void HelloVulkan::updateRtDescriptorSet()
   VkWriteDescriptorSet pwds2 = m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 5, &m_posHistoryBuffer.descriptor);
   vkUpdateDescriptorSets(m_device, 1, &pwds2, 0, nullptr);
 
-  VkWriteDescriptorSet vwds = m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 6, &m_varianceBuffer.descriptor);
-  vkUpdateDescriptorSets(m_device, 1, &vwds, 0, nullptr);
+  VkWriteDescriptorSet bwds = m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 6, &m_blueNoiseBuffer.descriptor);
+  vkUpdateDescriptorSets(m_device, 1, &bwds, 0, nullptr);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -1142,8 +1165,9 @@ void HelloVulkan::raytrace(const VkCommandBuffer& cmdBuf, const nvmath::vec4f& c
   m_pcRay.clearColor     = clearColor;
   m_pcRay.lightPosition  = m_pcRaster.lightPosition;
   m_pcRay.lightIntensity = m_pcRaster.lightIntensity;
-  m_pcRay.lightType      = m_pcRaster.lightType;
+  //m_pcRay.lightType      = m_pcRaster.lightType;
   m_pcRay.randSeed       = rand();
+  m_pcRay.randSeed2       = rand();
 
   //get one random light position to test
   float rand_light = randf();
@@ -1260,7 +1284,7 @@ void HelloVulkan::updateDenoiseCompDescriptors()
   writes.emplace_back(m_denoiseDescSetLayoutBind.makeWrite(m_denoiseDescSet, 0, &m_outputImageBuffer.descriptor));
   writes.emplace_back(m_denoiseDescSetLayoutBind.makeWrite(m_denoiseDescSet, 1, &m_denoiseBuffer.descriptor));
   writes.emplace_back(m_denoiseDescSetLayoutBind.makeWrite(m_denoiseDescSet, 2, &m_posCurrentBuffer.descriptor));
-  writes.emplace_back(m_denoiseDescSetLayoutBind.makeWrite(m_denoiseDescSet, 3, &m_varianceBuffer.descriptor));
+  writes.emplace_back(m_denoiseDescSetLayoutBind.makeWrite(m_denoiseDescSet, 3, &m_blueNoiseBuffer.descriptor));
 
   vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
@@ -1300,7 +1324,7 @@ void HelloVulkan::createDenoiseCompPipeline()
 //--------------------------------------------------------------------------------------------------
 // Running compute shader
 //
-#define GROUP_SIZE 16  // Same group size as in compute shader
+#define GROUP_SIZE 128  // Same group size as in compute shader
 void HelloVulkan::runCompute(VkCommandBuffer cmdBuf)
 {
 
@@ -1373,4 +1397,99 @@ void HelloVulkan::runCompute(VkCommandBuffer cmdBuf)
 
 
   m_debug.endLabel(cmdBuf);
+}
+
+#include <algorithm>
+#include <random>
+
+size_t get_correct_index(size_t i, int delta, size_t limit)
+{
+  return (i + 
+	  (limit + delta)) % limit;
+}
+
+static float weights[5]{0.0625, 0.25, 0.375, 0.25, 0.0625};
+
+void HelloVulkan::populate_blue_noise()
+{
+  std::vector<std::pair<size_t, size_t>> all_floats(m_size.width * m_size.height);
+  m_blue_noise.resize(m_size.height);
+  for(size_t i = 0; i < m_size.height; i++)
+  {
+    m_blue_noise[i].resize(m_size.width);
+    for(size_t j = 0; j < m_size.width; j++)
+    {
+      m_blue_noise[i][j]    = randf() - 0.5f;
+      size_t index             = i * m_size.width + j;
+      all_floats[index].first = i;
+      all_floats[index].second = j;
+    }
+  }
+  std::random_device rd;
+  std::mt19937       g(rd());
+  size_t             num_iterations = 5;
+  for(size_t i = 0; i < num_iterations; i++)
+  {
+    std::shuffle(all_floats.begin(), all_floats.end(), g);
+    size_t swapped = 0;
+    size_t unswapped = 0;
+    for(size_t j = 0; j < m_size.height * m_size.width - 1; j += 2)
+    {
+      size_t p1_i = all_floats[j].first;
+      size_t p1_j = all_floats[j].second;
+      size_t p2_i = all_floats[j + 1].first;
+      size_t p2_j = all_floats[j + 1].second;
+      float  f_1  = m_blue_noise[p1_i][p1_j];
+      float  f_2  = m_blue_noise[p2_i][p2_j];
+
+      float avg_1         = get_local_avg(p1_i, p1_j);
+      float avg_2         = get_local_avg(p2_i, p2_j);
+      float avg_unswapped = abs(avg_1) + abs(avg_2);
+      float avg_swapped =
+          abs(avg_1 + weights[2] * weights[2] * (f_2 - f_1)) + abs(avg_2 + weights[2] * weights[2] * (f_1 - f_2));
+      if(avg_swapped < avg_unswapped)
+      {
+        m_blue_noise[p1_i][p1_j] = f_2;
+        m_blue_noise[p2_i][p2_j] = f_1;
+        swapped++;
+      }
+	  else
+	  {
+		unswapped++;
+	  }
+    }
+    int test = swapped / unswapped;
+  }
+  m_flat_blue_noise.resize(m_size.width * m_size.height * 4);
+  size_t pos = 0;
+  for(size_t i = 0; i < m_size.height; i++)
+  {
+    for(size_t j = 0; j < m_size.width; j++)
+    {
+      uint r                = (m_blue_noise[i][j] + 0.5f) * std::numeric_limits<uint>::max();
+      if(i < m_size.height / 2)
+        r = rand();
+      m_flat_blue_noise[pos++] = r;
+      m_flat_blue_noise[pos++] = r;
+      m_flat_blue_noise[pos++] = r;
+      m_flat_blue_noise[pos++] = 1;
+
+    }
+  }
+}
+
+
+float HelloVulkan::get_local_avg(size_t _i, size_t _j) {
+  int kernel_width = 2;
+  float avg          = 0;
+  for(int i = -kernel_width; i <= kernel_width; i++)
+  {
+    size_t real_i = get_correct_index(_i, i, m_size.height);
+    for(int j = -kernel_width; j <= kernel_width; j++)
+    {
+      size_t real_j = get_correct_index(_j, j, m_size.width);
+      avg += weights[i+kernel_width] * weights[j+kernel_width] + m_blue_noise[real_i][real_j];
+    }
+  }
+  return avg;
 }

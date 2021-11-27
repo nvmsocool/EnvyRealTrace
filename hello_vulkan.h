@@ -37,18 +37,18 @@
 class HelloVulkan : public nvvk::AppBaseVk
 {
 public:
-  void setup(const VkInstance& instance, const VkDevice& device, const VkPhysicalDevice& physicalDevice, uint32_t queueFamily) override;
-  void createDescriptorSetLayout();
+  void   setup(const VkInstance& instance, const VkDevice& device, const VkPhysicalDevice& physicalDevice, uint32_t queueFamily) override;
+  void   createDescriptorSetLayout();
   void   createGraphicsPipeline();
   size_t loadModel(const std::string& filename, nvmath::mat4f transform = nvmath::mat4f(1));
-  void updateDescriptorSet();
-  void createUniformBuffer();
-  void createObjDescriptionBuffer();
-  void createTextureImages(const VkCommandBuffer& cmdBuf, const std::vector<std::string>& textures);
-  void updateUniformBuffer(const VkCommandBuffer& cmdBuf);
-  void onResize(int /*w*/, int /*h*/) override;
-  void destroyResources();
-  void rasterize(const VkCommandBuffer& cmdBuff);
+  void   updateDescriptorSet();
+  void   createUniformBuffer();
+  void   createObjDescriptionBuffer();
+  void   createTextureImages(const VkCommandBuffer& cmdBuf, const std::vector<std::string>& textures);
+  void   updateUniformBuffer(const VkCommandBuffer& cmdBuf);
+  void   onResize(int /*w*/, int /*h*/) override;
+  void   destroyResources();
+  void   rasterize(const VkCommandBuffer& cmdBuff);
 
   // The OBJ model
   struct ObjModel
@@ -74,7 +74,7 @@ public:
       {1},                // Identity matrix
       {1.5f, 3.5f, 0.f},  // light position
       0,                  // instance Id
-      1.f,              // light intensity
+      1.f,                // light intensity
       0                   // light type
   };
 
@@ -127,22 +127,21 @@ public:
   VkFramebuffer               m_offscreenFramebuffer{VK_NULL_HANDLE};
   nvvk::Texture               m_gBuffer, m_gBufferHistory;
   nvvk::Texture               m_rtCurrentBuffer, m_posCurrentBuffer, m_rtHistoryBuffer, m_posHistoryBuffer;
-  nvvk::Texture               m_iterationCurrentBuffer, m_normalCurrentBuffer, m_iterationHistoryBuffer, m_normalHistoryBuffer;
-  nvvk::Texture               m_denoiseBuffer;
-  nvvk::Texture               m_outputImageBuffer;
-  nvvk::Texture               m_varianceBuffer;
-  VkFormat                    m_offscreenColorFormat{VK_FORMAT_R32G32B32A32_SFLOAT};
-  VkFormat                    m_offscreenDepthFormat{VK_FORMAT_X8_D24_UNORM_PACK32};
+  nvvk::Texture m_iterationCurrentBuffer, m_normalCurrentBuffer, m_iterationHistoryBuffer, m_normalHistoryBuffer;
+  nvvk::Texture m_denoiseBuffer;
+  nvvk::Texture m_outputImageBuffer;
+  VkFormat      m_offscreenColorFormat{VK_FORMAT_R32G32B32A32_SFLOAT};
+  VkFormat      m_offscreenDepthFormat{VK_FORMAT_X8_D24_UNORM_PACK32};
 
   // #VKRay
   void                                            initRayTracing();
   VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
 
   // Accelleration structure objects and functions
-  nvvk::RaytracingBuilderKHR                      m_rtBuilder;
-  auto objectToVkGeometryKHR(const ObjModel& model);
-  void createBottomLevelAS();
-  void createTopLevelAS();
+  nvvk::RaytracingBuilderKHR m_rtBuilder;
+  auto                       objectToVkGeometryKHR(const ObjModel& model);
+  void                       createBottomLevelAS();
+  void                       createTopLevelAS();
 
   //Descriptor objects and functions
   nvvk::DescriptorSetBindings m_rtDescSetLayoutBind;
@@ -201,4 +200,9 @@ public:
   PushConstantDenoise         m_denoisePushConstants;
   int                         m_num_atrous_iterations = 1;
 
+  std::vector<std::vector<float>> m_blue_noise;
+  std::vector<uint>               m_flat_blue_noise;
+  void                            populate_blue_noise();
+  float                           get_local_avg(size_t i, size_t j);
+  nvvk::Texture                   m_blueNoiseBuffer;
 };
