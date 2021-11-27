@@ -227,6 +227,7 @@ int main(int argc, char** argv)
       ImGui::InputInt("AtrousIterations", &helloVk.m_num_atrous_iterations);
       if(ImGui::InputFloat("DenoiseDepthFactor", &helloVk.m_denoisePushConstants.depthFactor))
         helloVk.ResetFrame();
+      ImGui::Checkbox("Variance View", &helloVk.m_denoisePushConstants.varianceView);
       if(ImGui::InputFloat("DenoiseVarFactor", &helloVk.m_denoisePushConstants.varianceFactor))
         helloVk.ResetFrame();
       if(ImGui::InputFloat("DenoiseNormFactor", &helloVk.m_denoisePushConstants.normFactor))

@@ -1303,9 +1303,12 @@ void HelloVulkan::createDenoiseCompPipeline()
   plCreateInfo.pPushConstantRanges    = &push_constants;
   vkCreatePipelineLayout(m_device, &plCreateInfo, nullptr, &m_denoiseCompPipelineLayout);
 
-  m_denoisePushConstants.depthFactor = 0.5;
+  m_denoisePushConstants.depthFactor    = 0.5;
   m_denoisePushConstants.varianceFactor = 4;
-  m_denoisePushConstants.normFactor = 1;
+  m_denoisePushConstants.normFactor     = 10;
+  m_denoisePushConstants.varianceView   = false;
+  m_num_atrous_iterations               = 5;
+
 
   VkComputePipelineCreateInfo cpCreateInfo{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
   cpCreateInfo.layout = m_denoiseCompPipelineLayout;

@@ -134,7 +134,8 @@ struct PushConstantDenoise
   float varianceFactor;
   float lumenFactor;
 
-  int dist;
+  int   dist;
+  bool varianceView;
 
 };
 

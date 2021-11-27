@@ -198,7 +198,7 @@ public:
   VkPipelineLayout            m_denoiseCompPipelineLayout;
   VkPipeline                  m_denoisePipelineX, m_denoisePipelineY;
   PushConstantDenoise         m_denoisePushConstants;
-  int                         m_num_atrous_iterations = 1;
+  int                         m_num_atrous_iterations = 0;
 
   std::vector<std::vector<float>> m_blue_noise;
   std::vector<uint>               m_flat_blue_noise;
