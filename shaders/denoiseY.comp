@@ -78,29 +78,6 @@ void main()
         sum /= total_weight;
         sum2 /= total_weight;
         v_v[i+extent] = sum2 - sum * sum;
-
-        // if (i<2*extent)
-        // {
-        //     sum = 0;
-        //     sum2 = 0;
-	    //     total_weight = 0.0;
-	    //     my_norm = v_n[i+GROUP_SIZE];
-	    //     my_pos = v_p[i+GROUP_SIZE];
-        // 
-	    //     for (int j=-1; j<=1; j++) {
-		//         float n_factor = pow(max(0,dot(v_n[i+GROUP_SIZE+j],my_norm)),normFactor);
-		//         float p_factor = min(1,max(0,(depthFactor - length(v_p[i+GROUP_SIZE+j]-my_pos))/depthFactor));
-		//         float total_factor = weights[j+w] * n_factor * p_factor;
-        // 
-		//         sum += l[i+GROUP_SIZE+j] *  weights[j+w] * total_factor;
-		//         sum2 += l2[i+GROUP_SIZE+j] *  weights[j+w] * total_factor;
-		//         total_weight += total_factor;
-	    //     }
-        // 
-        //     sum /= total_weight;
-        //     sum2 /= total_weight;
-        //     v_v[i+GROUP_SIZE] = sum2 - sum * sum;
-        // }
     }
     
 	barrier();
@@ -124,7 +101,7 @@ void main()
 
 	// store result
 	imageStore(outImage, gpos, blurredPixel); // Write to destination image
-    if (pcDenoise.varianceView)
+    if (false)
     {
         float var = v_v[i+extent] / pcDenoise.varianceFactor;
 	    imageStore(outImage, gpos, vec4(var,var,var,1));

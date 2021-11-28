@@ -192,7 +192,7 @@ int main(int argc, char** argv)
   helloVk.createPostPipeline();
   helloVk.updatePostDescriptorSet();
 
-  
+
   helloVk.createDenoiseDescriptorSet();
   helloVk.updateDenoiseCompDescriptors();
   helloVk.createDenoiseCompPipeline();
@@ -222,26 +222,50 @@ int main(int argc, char** argv)
       ImGui::ColorEdit3("Clear color", reinterpret_cast<float*>(&clearColor));
       if(ImGui::Checkbox("Ray Tracer mode", &useRaytracer))
         helloVk.ResetFrame();
-      if (ImGui::InputFloat("Jitter", &helloVk.m_pcRay.jitter))
+
+      if(ImGui::InputFloat("Jitter", &helloVk.m_pcRay.jitter))
         helloVk.ResetFrame();
-      ImGui::InputInt("AtrousIterations", &helloVk.m_num_atrous_iterations);
-      if(ImGui::InputFloat("DenoiseDepthFactor", &helloVk.m_denoisePushConstants.depthFactor))
+
+      if(ImGui::InputInt("AtrousIterations", &helloVk.m_num_atrous_iterations))
+      {
+
+        if(helloVk.m_num_atrous_iterations < 0)
+          helloVk.m_num_atrous_iterations = 0;
+      }
+      if(ImGui::InputFloat("DenoiseDepthFactor", &helloVk.m_pcDenoise.depthFactor))
         helloVk.ResetFrame();
-      ImGui::Checkbox("Variance View", &helloVk.m_denoisePushConstants.varianceView);
-      if(ImGui::InputFloat("DenoiseVarFactor", &helloVk.m_denoisePushConstants.varianceFactor))
+      //ImGui::Checkbox("Variance View", &helloVk.m_pcDenoise.varianceView);
+      if(ImGui::InputFloat("DenoiseVarFactor", &helloVk.m_pcDenoise.varianceFactor))
         helloVk.ResetFrame();
-      if(ImGui::InputFloat("DenoiseNormFactor", &helloVk.m_denoisePushConstants.normFactor))
+      if(ImGui::InputFloat("DenoiseNormFactor", &helloVk.m_pcDenoise.normFactor))
         helloVk.ResetFrame();
+
+
+      if(ImGui::InputFloat("resample M", &helloVk.m_pcRay.np_m))
+      {
+        if(helloVk.m_pcRay.np_m > 0)
+          helloVk.m_pcRay.np_m = 0;
+        helloVk.ResetFrame();
+      }
+      if(ImGui::InputFloat("resample B", &helloVk.m_pcRay.np_b))
+      {
+        if(helloVk.m_pcRay.np_b < 0)
+          helloVk.m_pcRay.np_b = 0;
+        helloVk.ResetFrame();
+      }
+
+      if(ImGui::Checkbox("explicit", &helloVk.m_pcRay.ExplicitLightRays))
+        helloVk.ResetFrame();
+
+	  
       if(ImGui::Checkbox("history view", &helloVk.m_pcRay.historyView))
-        helloVk.ResetFrame();
-      if (ImGui::InputFloat("position hit tolerance", &helloVk.m_pcRay.posTolerance))
-        helloVk.ResetFrame();
-      if (ImGui::Checkbox("explicit", &helloVk.m_pcRay.ExplicitLightRays))
         helloVk.ResetFrame();
       if(helloVk.m_pcRay.historyView)
       {
         ImGui::InputFloat("rainbowDelay", &helloVk.m_pcRay.numSteps);
       }
+      if(ImGui::InputFloat("temporal distance epsilon", &helloVk.m_pcRay.posTolerance))
+        helloVk.ResetFrame();
       if(ImGui::InputFloat("Sub-pixel sampling redux", &helloVk.m_pcRay.subPixelErrRedux))
         helloVk.ResetFrame();
       renderUI(helloVk);
@@ -279,16 +303,16 @@ int main(int argc, char** argv)
       offscreenRenderPassBeginInfo.renderArea      = {{0, 0}, helloVk.getSize()};
 
       // Rendering Scene
-      if (useRaytracer)
+      if(useRaytracer)
       {
         helloVk.raytrace(cmdBuf, clearColor);
         helloVk.runCompute(cmdBuf);
       }
       else
       {
-          vkCmdBeginRenderPass(cmdBuf, &offscreenRenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-          helloVk.rasterize(cmdBuf);
-          vkCmdEndRenderPass(cmdBuf);
+        vkCmdBeginRenderPass(cmdBuf, &offscreenRenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+        helloVk.rasterize(cmdBuf);
+        vkCmdEndRenderPass(cmdBuf);
       }
     }
 
@@ -309,9 +333,7 @@ int main(int argc, char** argv)
       ImGui::Render();
       ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
       vkCmdEndRenderPass(cmdBuf);
-
     }
-
 
 
     // Submit for display

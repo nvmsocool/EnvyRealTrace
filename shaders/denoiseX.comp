@@ -101,7 +101,7 @@ void main()
 
 	// store result
 	imageStore(outImage, gpos, blurredPixel); // Write to destination image
-    if (pcDenoise.varianceView)
+    if (false)
     {
         float var = v_v[i+extent] / pcDenoise.varianceFactor;
 	    imageStore(outImage, gpos, vec4(var,var,var,1));

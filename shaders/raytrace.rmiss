@@ -18,7 +18,7 @@ void main()
 {
   if(prd.depth == 0)
   {
-    prd.hitValue = pcRay.clearColor.xyz * 0.8;
+    prd.hitValue = vec3(.1,.1,.1) * 0.8;
   }
   else
   {

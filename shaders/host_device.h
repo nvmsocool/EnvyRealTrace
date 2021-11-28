@@ -88,9 +88,6 @@ struct PushConstantRaster
 // Push constant structure for the ray tracer
 struct PushConstantRay
 {
-  vec4  clearColor;
-  vec3  lightPosition;
-  float lightIntensity;
   int   randSeed;
   int   randSeed2;
   int   frame;
@@ -101,6 +98,8 @@ struct PushConstantRay
   float posTolerance;
   vec3  randLightPos;
   float subPixelErrRedux;
+  float np_m;
+  float np_b;
 };
 
 struct Vertex  // See ObjLoader, copy of VertexObj, could be compressed for device
@@ -134,8 +133,10 @@ struct PushConstantDenoise
   float varianceFactor;
   float lumenFactor;
 
-  int   dist;
+  int  dist;
   bool varianceView;
+  bool placeholder1;
+  bool placeholder2;
 
 };
 

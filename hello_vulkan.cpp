@@ -801,7 +801,20 @@ void HelloVulkan::initRayTracing()
 
   m_maxAnis = prop2.properties.limits.maxSamplerAnisotropy;
 
-  m_pcRay.posTolerance = 0.1;
+  m_pcRay.posTolerance      = 0.1;
+  m_pcRay.jitter            = 0.0;
+  m_pcRay.numSteps          = 100.0;
+  m_pcRay.historyView       = false;
+  m_pcRay.ExplicitLightRays = false;
+  m_pcRay.subPixelErrRedux  = 0.00;
+  m_pcRay.np_m              = -2;
+  m_pcRay.np_b              = 50;
+
+  m_num_atrous_iterations    = 5;
+  m_pcDenoise.depthFactor    = 0.5;
+  m_pcDenoise.varianceFactor = 4;
+  m_pcDenoise.normFactor     = 10;
+  m_pcDenoise.varianceView   = false;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -863,8 +876,6 @@ void HelloVulkan::createBottomLevelAS()
   }
   m_rtBuilder.buildBlas(allBlas, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
 
-  m_pcRay.jitter   = 0.0;
-  m_pcRay.numSteps = 100.0;
 
 }
 
@@ -1162,10 +1173,10 @@ void HelloVulkan::raytrace(const VkCommandBuffer& cmdBuf, const nvmath::vec4f& c
   updateFrame();
   m_debug.beginLabel(cmdBuf, "Ray trace");
   // Initializing push constant values
-  m_pcRay.clearColor     = clearColor;
-  m_pcRay.lightPosition  = m_pcRaster.lightPosition;
-  m_pcRay.lightIntensity = m_pcRaster.lightIntensity;
-  //m_pcRay.lightType      = m_pcRaster.lightType;
+  // m_pcRay.clearColor     = clearColor;
+  // m_pcRay.lightPosition  = m_pcRaster.lightPosition;
+  // m_pcRay.lightIntensity = m_pcRaster.lightIntensity;
+  // m_pcRay.lightType      = m_pcRaster.lightType;
   m_pcRay.randSeed       = rand();
   m_pcRay.randSeed2       = rand();
 
@@ -1303,11 +1314,6 @@ void HelloVulkan::createDenoiseCompPipeline()
   plCreateInfo.pPushConstantRanges    = &push_constants;
   vkCreatePipelineLayout(m_device, &plCreateInfo, nullptr, &m_denoiseCompPipelineLayout);
 
-  m_denoisePushConstants.depthFactor    = 0.5;
-  m_denoisePushConstants.varianceFactor = 4;
-  m_denoisePushConstants.normFactor     = 10;
-  m_denoisePushConstants.varianceView   = false;
-  m_num_atrous_iterations               = 5;
 
 
   VkComputePipelineCreateInfo cpCreateInfo{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
@@ -1348,7 +1354,7 @@ void HelloVulkan::runCompute(VkCommandBuffer cmdBuf)
 
   for(size_t i = 1; i <= m_num_atrous_iterations; i++)
   {
-    m_denoisePushConstants.dist = i;
+    m_pcDenoise.dist = i;
 
     // X
     {
@@ -1360,8 +1366,7 @@ void HelloVulkan::runCompute(VkCommandBuffer cmdBuf)
 
 
       // Sending the push constant information
-      vkCmdPushConstants(cmdBuf, m_denoiseCompPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                         sizeof(PushConstantDenoise), &m_denoisePushConstants);
+      vkCmdPushConstants(cmdBuf, m_denoiseCompPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstantDenoise), &m_pcDenoise);
 
       // Dispatching the shader
       vkCmdDispatch(cmdBuf, (m_size.width + (GROUP_SIZE - 1)) / GROUP_SIZE, m_size.height, 1);
@@ -1383,8 +1388,7 @@ void HelloVulkan::runCompute(VkCommandBuffer cmdBuf)
 
 
       // Sending the push constant information
-      vkCmdPushConstants(cmdBuf, m_denoiseCompPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                         sizeof(PushConstantDenoise), &m_denoisePushConstants);
+      vkCmdPushConstants(cmdBuf, m_denoiseCompPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstantDenoise), &m_pcDenoise);
 
       // Dispatching the shader
       vkCmdDispatch(cmdBuf, m_size.width, (m_size.height + (GROUP_SIZE - 1)) / GROUP_SIZE, 1);
@@ -1415,17 +1419,25 @@ static float weights[5]{0.0625, 0.25, 0.375, 0.25, 0.0625};
 
 void HelloVulkan::populate_blue_noise()
 {
-  std::vector<std::pair<size_t, size_t>> all_floats(m_size.width * m_size.height);
+  std::vector<std::vector<std::pair<size_t, size_t>>> all_floats(m_size.width * m_size.height);
+  all_floats.resize(4);
+  for(size_t i = 0; i < 4; i++)
+  {
+    all_floats[i].resize((m_size.width * m_size.height));
+  }
   m_blue_noise.resize(m_size.height);
   for(size_t i = 0; i < m_size.height; i++)
   {
     m_blue_noise[i].resize(m_size.width);
     for(size_t j = 0; j < m_size.width; j++)
     {
-      m_blue_noise[i][j]    = randf() - 0.5f;
-      size_t index             = i * m_size.width + j;
-      all_floats[index].first = i;
-      all_floats[index].second = j;
+      for(size_t k = 0; k < 4; k++)
+      {
+        m_blue_noise[i][j][k]    = randf() - 0.5f;
+        size_t index             = i * m_size.width + j;
+        all_floats[k][index].first  = i;
+        all_floats[k][index].second = j;
+      }
     }
   }
   std::random_device rd;
@@ -1433,35 +1445,33 @@ void HelloVulkan::populate_blue_noise()
   size_t             num_iterations = 5;
   for(size_t i = 0; i < num_iterations; i++)
   {
-    std::shuffle(all_floats.begin(), all_floats.end(), g);
-    size_t swapped = 0;
-    size_t unswapped = 0;
+    for(size_t i = 0; i < 4; i++)
+    {
+      std::shuffle(all_floats[i].begin(), all_floats[i].end(), g);
+    }
     for(size_t j = 0; j < m_size.height * m_size.width - 1; j += 2)
     {
-      size_t p1_i = all_floats[j].first;
-      size_t p1_j = all_floats[j].second;
-      size_t p2_i = all_floats[j + 1].first;
-      size_t p2_j = all_floats[j + 1].second;
-      float  f_1  = m_blue_noise[p1_i][p1_j];
-      float  f_2  = m_blue_noise[p2_i][p2_j];
-
-      float avg_1         = get_local_avg(p1_i, p1_j);
-      float avg_2         = get_local_avg(p2_i, p2_j);
-      float avg_unswapped = abs(avg_1) + abs(avg_2);
-      float avg_swapped =
-          abs(avg_1 + weights[2] * weights[2] * (f_2 - f_1)) + abs(avg_2 + weights[2] * weights[2] * (f_1 - f_2));
-      if(avg_swapped < avg_unswapped)
+      for(size_t k = 0; k < 4; k++)
       {
-        m_blue_noise[p1_i][p1_j] = f_2;
-        m_blue_noise[p2_i][p2_j] = f_1;
-        swapped++;
+        size_t p1_i = all_floats[k][j].first;
+        size_t p1_j = all_floats[k][j].second;
+        size_t p2_i = all_floats[k][j + 1].first;
+        size_t p2_j = all_floats[k][j + 1].second;
+        float  f_1  = m_blue_noise[p1_i][p1_j][k];
+        float  f_2  = m_blue_noise[p2_i][p2_j][k];
+
+        float avg_1         = get_local_avg(p1_i, p1_j, k);
+        float avg_2         = get_local_avg(p2_i, p2_j, k);
+        float avg_unswapped = abs(avg_1) + abs(avg_2);
+        float avg_swapped =
+            abs(avg_1 + weights[2] * weights[2] * (f_2 - f_1)) + abs(avg_2 + weights[2] * weights[2] * (f_1 - f_2));
+        if(avg_swapped < avg_unswapped)
+        {
+          m_blue_noise[p1_i][p1_j][k] = f_2;
+          m_blue_noise[p2_i][p2_j][k] = f_1;
+        }
       }
-	  else
-	  {
-		unswapped++;
-	  }
     }
-    int test = swapped / unswapped;
   }
   m_flat_blue_noise.resize(m_size.width * m_size.height * 4);
   size_t pos = 0;
@@ -1469,20 +1479,18 @@ void HelloVulkan::populate_blue_noise()
   {
     for(size_t j = 0; j < m_size.width; j++)
     {
-      uint r                = (m_blue_noise[i][j] + 0.5f) * std::numeric_limits<uint>::max();
-      if(i < m_size.height / 2)
-        r = rand();
-      m_flat_blue_noise[pos++] = r;
-      m_flat_blue_noise[pos++] = r;
-      m_flat_blue_noise[pos++] = r;
-      m_flat_blue_noise[pos++] = 1;
-
+      for(size_t k = 0; k < 4; k++)
+      {
+        uint r                   = (m_blue_noise[i][j][k] + 0.5f) * std::numeric_limits<uint>::max();
+        m_flat_blue_noise[pos++] = r;
+      }
     }
   }
 }
 
 
-float HelloVulkan::get_local_avg(size_t _i, size_t _j) {
+float HelloVulkan::get_local_avg(size_t _i, size_t _j, size_t k)
+{
   int kernel_width = 2;
   float avg          = 0;
   for(int i = -kernel_width; i <= kernel_width; i++)
@@ -1491,7 +1499,7 @@ float HelloVulkan::get_local_avg(size_t _i, size_t _j) {
     for(int j = -kernel_width; j <= kernel_width; j++)
     {
       size_t real_j = get_correct_index(_j, j, m_size.width);
-      avg += weights[i+kernel_width] * weights[j+kernel_width] + m_blue_noise[real_i][real_j];
+      avg += weights[i+kernel_width] * weights[j+kernel_width] + m_blue_noise[real_i][real_j][k];
     }
   }
   return avg;

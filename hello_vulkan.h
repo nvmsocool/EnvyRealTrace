@@ -197,12 +197,12 @@ public:
   VkDescriptorSet             m_denoiseDescSet;
   VkPipelineLayout            m_denoiseCompPipelineLayout;
   VkPipeline                  m_denoisePipelineX, m_denoisePipelineY;
-  PushConstantDenoise         m_denoisePushConstants;
+  PushConstantDenoise         m_pcDenoise;
   int                         m_num_atrous_iterations = 0;
 
-  std::vector<std::vector<float>> m_blue_noise;
+  std::vector<std::vector<vec4>> m_blue_noise;
   std::vector<uint>               m_flat_blue_noise;
   void                            populate_blue_noise();
-  float                           get_local_avg(size_t i, size_t j);
+  float                           get_local_avg(size_t i, size_t j, size_t k);
   nvvk::Texture                   m_blueNoiseBuffer;
 };
